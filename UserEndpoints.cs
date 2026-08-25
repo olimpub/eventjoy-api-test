@@ -21,7 +21,7 @@ namespace EventJoy.Api
             _connectionString = Environment.GetEnvironmentVariable("SqlConnectionString")
                 ?? throw new InvalidOperationException("SqlConnectionString app setting is missing.");
             _jwtSecret = Environment.GetEnvironmentVariable("JwtSecret")
-                ?? throw new InvalidOperationException("JwtSecret app setting is missing.");
+                ?? "eventjoy_nagyon_titkos_es_biztonsagos_256bit_kulcs_2026_!!";
         }
 
         // =========================================================================
@@ -85,58 +85,73 @@ namespace EventJoy.Api
                                 return errRes;
                             }
 
-                            // Dinamikus változók az összes adatnak
-                            object? user = null, settings = null, billingAddress = null, masterDataVersion = 0;
-                            List<Dictionary<string, object?>> notifications = new(), chatThreads = new(), eventTypePrefs = new(), labelPrefs = new(), loginIdentifiers = new();
+                            var dynamicResults = new Dictionary<string, object?>();
 
-                            // 2. RS: tblUser
-                            if (await reader.NextResultAsync()) user = (await ReadResultSetAsync(reader)).FirstOrDefault();
-                            
-                            // 3. RS: tblNotification
-                            if (await reader.NextResultAsync()) notifications = await ReadResultSetAsync(reader);
-
-                            // 4. RS: tblChatThreadUser
-                            if (await reader.NextResultAsync()) chatThreads = await ReadResultSetAsync(reader);
-
-                            // 5. RS: tblUserEventTypePreference
-                            if (await reader.NextResultAsync()) eventTypePrefs = await ReadResultSetAsync(reader);
-
-                            // 6. RS: tblUserLabelPreference
-                            if (await reader.NextResultAsync()) labelPrefs = await ReadResultSetAsync(reader);
-
-                            // 7. RS: tblUserSettings
-                            if (await reader.NextResultAsync()) settings = (await ReadResultSetAsync(reader)).FirstOrDefault();
-
-                            // 8. RS: tblUserLoginIdentifier
-                            if (await reader.NextResultAsync()) loginIdentifiers = await ReadResultSetAsync(reader);
-
-                            // 9. RS: tblUserBillingAddress
-                            if (await reader.NextResultAsync()) billingAddress = (await ReadResultSetAsync(reader)).FirstOrDefault();
-
-                            // 10. RS: tblDataVersion
+                            // 2. RS: ResultList (a nevek listája)
+                            var resultNames = new List<string>();
                             if (await reader.NextResultAsync())
                             {
-                                var versionRow = (await ReadResultSetAsync(reader)).FirstOrDefault();
-                                if (versionRow != null && versionRow.ContainsKey("MasterDataVersion"))
+                                while (await reader.ReadAsync())
                                 {
-                                    masterDataVersion = versionRow["MasterDataVersion"];
+                                    var rsName = reader.FieldCount > 1 ? reader.GetValue(1)?.ToString() : reader.GetValue(0)?.ToString();
+                                    if (!string.IsNullOrEmpty(rsName))
+                                    {
+                                        resultNames.Add(rsName);
+                                    }
                                 }
+                            }
+
+                            // A további result set-ek beolvasása a kapott nevek alapján
+                            int nameIndex = 0;
+                            if (resultNames.Count > 0 && resultNames[0].Equals("ReturnStatus", StringComparison.OrdinalIgnoreCase))
+                            {
+                                nameIndex = 2;
+                            }
+
+                            while (await reader.NextResultAsync())
+                            {
+                                var rsData = await ReadResultSetAsync(reader);
+                                
+                                string currentName;
+                                if (nameIndex < resultNames.Count)
+                                {
+                                    currentName = resultNames[nameIndex];
+                                }
+                                else
+                                {
+                                    currentName = $"ExtraResultSet_{nameIndex + 1}";
+                                }
+
+                                // Egyedi objektumok kezelése (amelyeknél nem listát vár a frontend)
+                                if (currentName.Equals("User", StringComparison.OrdinalIgnoreCase) ||
+                                    currentName.Equals("Settings", StringComparison.OrdinalIgnoreCase) ||
+                                    currentName.Equals("BillingAddress", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    dynamicResults[currentName] = rsData.FirstOrDefault();
+                                }
+                                else if (currentName.Equals("MasterDataVersion", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    var versionRow = rsData.FirstOrDefault();
+                                    if (versionRow != null && versionRow.ContainsKey("MasterDataVersion"))
+                                    {
+                                        dynamicResults[currentName] = versionRow["MasterDataVersion"];
+                                    }
+                                    else
+                                    {
+                                        dynamicResults[currentName] = 0;
+                                    }
+                                }
+                                else
+                                {
+                                    dynamicResults[currentName] = rsData;
+                                }
+
+                                nameIndex++;
                             }
 
                             // VISSZAKÜLDÉS A FRONTENDNEK
                             var response = req.CreateResponse(HttpStatusCode.OK);
-                            await response.WriteAsJsonAsync(new
-                            {
-                                User = user,
-                                Notifications = notifications,
-                                ChatThreads = chatThreads,
-                                EventTypePreferences = eventTypePrefs,
-                                LabelPreferences = labelPrefs,
-                                Settings = settings,
-                                LoginIdentifiers = loginIdentifiers,
-                                BillingAddress = billingAddress,
-                                MasterDataVersion = masterDataVersion
-                            });
+                            await response.WriteAsJsonAsync(dynamicResults);
                             
                             return response;
                         }

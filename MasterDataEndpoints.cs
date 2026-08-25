@@ -72,38 +72,61 @@ namespace EventJoy.Api
                                 return errRes;
                             }
 
-                            List<Dictionary<string, object?>> eventTypes = new(), eventTypeGroups = new(), notificationTypes = new(), 
-                                roleTypes = new(), roles = new(), loginIdentifierTypes = new(), userStatuses = new(), 
-                                chatThreadTypes = new(), eventStatuses = new(), eventUserStatuses = new();
-                            object? dataVersion = null;
+                            var dynamicResults = new Dictionary<string, object?>();
 
-                            if (await reader.NextResultAsync()) eventTypes = await ReadResultSetAsync(reader);
-                            if (await reader.NextResultAsync()) eventTypeGroups = await ReadResultSetAsync(reader);
-                            if (await reader.NextResultAsync()) notificationTypes = await ReadResultSetAsync(reader);
-                            if (await reader.NextResultAsync()) roleTypes = await ReadResultSetAsync(reader);
-                            if (await reader.NextResultAsync()) roles = await ReadResultSetAsync(reader);
-                            if (await reader.NextResultAsync()) loginIdentifierTypes = await ReadResultSetAsync(reader);
-                            if (await reader.NextResultAsync()) userStatuses = await ReadResultSetAsync(reader);
-                            if (await reader.NextResultAsync()) chatThreadTypes = await ReadResultSetAsync(reader);
-                            if (await reader.NextResultAsync()) eventStatuses = await ReadResultSetAsync(reader);
-                            if (await reader.NextResultAsync()) eventUserStatuses = await ReadResultSetAsync(reader);
-                            if (await reader.NextResultAsync()) dataVersion = (await ReadResultSetAsync(reader)).FirstOrDefault();
+                            // 2. RS: ResultList (a nevek listája)
+                            var resultNames = new List<string>();
+                            if (await reader.NextResultAsync())
+                            {
+                                while (await reader.ReadAsync())
+                                {
+                                    // Biztonságos beolvasás: ha van 2 oszlop, akkor az 1-es indexű, ha csak 1, akkor a 0-ás.
+                                    // Ez kivédi, ha az SSMS-ből kimásolt "1" valójában csak sorszám volt, nem adatbázis oszlop.
+                                    var rsName = reader.FieldCount > 1 ? reader.GetValue(1)?.ToString() : reader.GetValue(0)?.ToString();
+                                    if (!string.IsNullOrEmpty(rsName))
+                                    {
+                                        resultNames.Add(rsName);
+                                    }
+                                }
+                            }
+
+                            // A további result set-ek beolvasása a kapott nevek alapján
+                            int nameIndex = 0;
+                            // Ha a nevek listája tartalmazza a "ReturnStatus"-t, akkor az első kettőt (ReturnStatus, ResultList) már beolvastuk!
+                            if (resultNames.Count > 0 && resultNames[0].Equals("ReturnStatus", StringComparison.OrdinalIgnoreCase))
+                            {
+                                nameIndex = 2;
+                            }
+
+                            while (await reader.NextResultAsync())
+                            {
+                                var rsData = await ReadResultSetAsync(reader);
+                                
+                                string currentName;
+                                if (nameIndex < resultNames.Count)
+                                {
+                                    currentName = resultNames[nameIndex];
+                                }
+                                else
+                                {
+                                    currentName = $"ExtraResultSet_{nameIndex + 1}";
+                                }
+
+                                // Ha a név "DataVersion", akkor csak az első sort (vagy null-t) adjuk vissza a kompatibilitás miatt
+                                if (currentName.Equals("DataVersion", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    dynamicResults[currentName] = rsData.FirstOrDefault();
+                                }
+                                else
+                                {
+                                    dynamicResults[currentName] = rsData;
+                                }
+
+                                nameIndex++;
+                            }
 
                             var response = req.CreateResponse(HttpStatusCode.OK);
-                            await response.WriteAsJsonAsync(new
-                            {
-                                EventTypes = eventTypes,
-                                EventTypeGroups = eventTypeGroups,
-                                NotificationTypes = notificationTypes,
-                                RoleTypes = roleTypes,
-                                Roles = roles,
-                                LoginIdentifierTypes = loginIdentifierTypes,
-                                UserStatuses = userStatuses,
-                                ChatThreadTypes = chatThreadTypes,
-                                EventStatuses = eventStatuses,
-                                EventUserStatuses = eventUserStatuses,
-                                DataVersion = dataVersion
-                            });
+                            await response.WriteAsJsonAsync(dynamicResults);
                             
                             return response;
                         }

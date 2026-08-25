@@ -562,6 +562,7 @@ namespace EventJoy.Api
             int? returnValue = null;
             Dictionary<string, object?>? result1 = null;
             Dictionary<string, object?>? result2 = null;
+            var extraResultSets = new Dictionary<string, List<Dictionary<string, object?>>>();
 
             try
             {
@@ -592,10 +593,22 @@ namespace EventJoy.Api
                                 return errRes;
                             }
 
-                            bool hasSecondResult = await reader.NextResultAsync();
-                            if (hasSecondResult && await reader.ReadAsync())
+                            bool hasMoreResults = await reader.NextResultAsync();
+                            int extraResultSetIndex = 1;
+
+                            while (hasMoreResults)
                             {
-                                result2 = ReadCurrentRow(reader);
+                                var rs = await ReadResultSetAsync(reader);
+                                extraResultSets[$"ResultSet{extraResultSetIndex}"] = rs;
+                                
+                                // Kikeressük a User rekordot, ha még nincs meg (a UserID oszlop alapján)
+                                if (result2 == null && rs.Count > 0 && rs[0].ContainsKey("UserID"))
+                                {
+                                    result2 = rs[0];
+                                }
+
+                                extraResultSetIndex++;
+                                hasMoreResults = await reader.NextResultAsync();
                             }
                         }
                     }
@@ -650,7 +663,8 @@ namespace EventJoy.Api
                             Token = jwtToken,
                             RefreshToken = refreshToken,
                             User = result2
-                        }
+                        },
+                        ExtraResultSets = extraResultSets
                     });
                     return okRes;
                 }
@@ -690,6 +704,16 @@ namespace EventJoy.Api
             return Convert.ToInt32(value);
         }
 
+        private async Task<List<Dictionary<string, object?>>> ReadResultSetAsync(SqlDataReader reader)
+        {
+            var list = new List<Dictionary<string, object?>>();
+            while (await reader.ReadAsync())
+            {
+                list.Add(ReadCurrentRow(reader));
+            }
+            return list;
+        }
+
         private string GenerateRefreshToken()
         {
             var randomNumber = new byte[32];
@@ -710,6 +734,7 @@ namespace EventJoy.Api
                 return builder.ToString();
             }
         }
+
     }
 
     public class CheckIdentityDto { public string? IdentityValue { get; set; } }
