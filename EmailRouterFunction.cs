@@ -83,7 +83,7 @@ namespace EventJoy.Api
                                 {
                                     headers.Add(new EmailHeaderDto
                                     {
-                                        EmailID = reader.GetInt64(reader.GetOrdinal("EmailID")),
+                                        EmailID = Convert.ToInt64(reader.GetValue(reader.GetOrdinal("EmailID"))),
                                         BatchID = reader.GetGuid(reader.GetOrdinal("BatchID")),
                                         SenderMail = reader.GetString(reader.GetOrdinal("SenderMail")),
                                         RecipientName = reader.IsDBNull(reader.GetOrdinal("RecipientName")) ? null : reader.GetString(reader.GetOrdinal("RecipientName")),
@@ -103,7 +103,7 @@ namespace EventJoy.Api
                                 {
                                     parameters.Add(new EmailParamDto
                                     {
-                                        EmailID = reader.GetInt64(reader.GetOrdinal("EmailID")),
+                                        EmailID = Convert.ToInt64(reader.GetValue(reader.GetOrdinal("EmailID"))),
                                         ParamName = reader.GetString(reader.GetOrdinal("ParamName")),
                                         ParamValue = reader.IsDBNull(reader.GetOrdinal("ParamValue")) ? null : reader.GetString(reader.GetOrdinal("ParamValue"))
                                     });
