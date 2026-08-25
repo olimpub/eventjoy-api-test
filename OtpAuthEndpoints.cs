@@ -396,6 +396,31 @@ namespace EventJoy.Api
                     }
                 }
 
+                if (result1 != null && result1.TryGetValue("MailID", out var mailIdObj) && mailIdObj != null)
+                {
+                    if (Guid.TryParse(mailIdObj.ToString(), out Guid mailId))
+                    {
+                        var sbConnString = Environment.GetEnvironmentVariable("ServiceBusConnection");
+                        if (!string.IsNullOrEmpty(sbConnString))
+                        {
+                            await using var client = new Azure.Messaging.ServiceBus.ServiceBusClient(sbConnString);
+                            await using var sender = client.CreateSender("communication");
+                            var payload = new { MailId = mailId };
+                            var sbMessage = new Azure.Messaging.ServiceBus.ServiceBusMessage(System.Text.Json.JsonSerializer.Serialize(payload))
+                            {
+                                MessageId = mailId.ToString()
+                            };
+                            sbMessage.ApplicationProperties["channel"] = "email";
+                            await sender.SendMessageAsync(sbMessage);
+                            _logger.LogInformation($"Successfully published MailID {mailId} to ServiceBus.");
+                        }
+                        else
+                        {
+                            _logger.LogWarning("ServiceBusConnection is missing. Could not publish MailID.");
+                        }
+                    }
+                }
+
                 var response = req.CreateResponse(System.Net.HttpStatusCode.OK);
                 await response.WriteAsJsonAsync(new
                 {
