@@ -15,14 +15,16 @@ namespace EventJoy.Api
         private readonly ILogger _logger;
         private readonly string _connectionString;
         private readonly string _jwtSecret;
+        private readonly Azure.Messaging.ServiceBus.ServiceBusClient? _serviceBusClient;
 
-        public EventEndpoints(ILoggerFactory loggerFactory)
+        public EventEndpoints(ILoggerFactory loggerFactory, IServiceProvider serviceProvider)
         {
             _logger = loggerFactory.CreateLogger<EventEndpoints>();
             _connectionString = Environment.GetEnvironmentVariable("SqlConnectionString")
                 ?? throw new InvalidOperationException("SqlConnectionString app setting is missing.");
             _jwtSecret = Environment.GetEnvironmentVariable("JwtSecret")
                 ?? "eventjoy_nagyon_titkos_es_biztonsagos_256bit_kulcs_2026_!!";
+            _serviceBusClient = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<Azure.Messaging.ServiceBus.ServiceBusClient>(serviceProvider);
         }
 
         private async Task<List<Dictionary<string, object?>>> ReadResultSetAsync(SqlDataReader reader)
@@ -375,6 +377,349 @@ namespace EventJoy.Api
             {
                 _logger.LogError(ex, "Error fetching invitation data.");
                 return req.CreateResponse(HttpStatusCode.InternalServerError);
+            }
+        }
+        [Function("SaveEvent")]
+        public async Task<HttpResponseData> SaveEvent([HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "event/save")] HttpRequestData req)
+        {
+            int? userId = JwtValidator.ValidateTokenAndGetUserId(req, _jwtSecret);
+
+            if (userId == null)
+            {
+                var unauthRes = req.CreateResponse(HttpStatusCode.Unauthorized);
+                await unauthRes.WriteStringAsync("Érvénytelen vagy lejárt bejelentkezési token!");
+                return unauthRes;
+            }
+
+            try
+            {
+                string requestBody = await new System.IO.StreamReader(req.Body).ReadToEndAsync();
+                
+                using (var conn = new SqlConnection(_connectionString))
+                {
+                    await conn.OpenAsync();
+
+                    using (var cmd = new SqlCommand("[EJ].[spSaveEvent]", conn))
+                    {
+                        cmd.CommandType = System.Data.CommandType.StoredProcedure;
+                        cmd.Parameters.AddWithValue("@UserID", userId.Value);
+                        cmd.Parameters.AddWithValue("@Json", requestBody);
+
+                        int returnValue = 0;
+                        string returnDescription = string.Empty;
+                        int? newEventId = null;
+
+                        using (var reader = await cmd.ExecuteReaderAsync())
+                        {
+                            if (await reader.ReadAsync())
+                            {
+                                returnValue = Convert.ToInt32(reader["ReturnValue"]);
+                                returnDescription = reader["ReturnDescription"]?.ToString() ?? string.Empty;
+                                newEventId = reader["EventID"] != DBNull.Value ? Convert.ToInt32(reader["EventID"]) : null;
+                            }
+
+                            if (returnValue != 1)
+                            {
+                                var errRes = req.CreateResponse(HttpStatusCode.BadRequest);
+                                await errRes.WriteStringAsync(returnDescription);
+                                return errRes;
+                            }
+
+                            var response = req.CreateResponse(HttpStatusCode.OK);
+                            await response.WriteAsJsonAsync(new { 
+                                ReturnValue = returnValue, 
+                                ReturnDescription = returnDescription,
+                                EventID = newEventId
+                            });
+                            return response;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error saving event.");
+                var errorRes = req.CreateResponse(HttpStatusCode.InternalServerError);
+                await errorRes.WriteStringAsync($"Error: {ex.Message} | StackTrace: {ex.StackTrace}");
+                return errorRes;
+            }
+        }
+
+        [Function("ChangeEvent")]
+        public async Task<HttpResponseData> ChangeEvent([HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "event/change")] HttpRequestData req)
+        {
+            int? userId = JwtValidator.ValidateTokenAndGetUserId(req, _jwtSecret);
+
+            if (userId == null)
+            {
+                var unauthRes = req.CreateResponse(HttpStatusCode.Unauthorized);
+                await unauthRes.WriteStringAsync("Érvénytelen vagy lejárt bejelentkezési token!");
+                return unauthRes;
+            }
+
+            try
+            {
+                string requestBody = await new System.IO.StreamReader(req.Body).ReadToEndAsync();
+                
+                using (var conn = new SqlConnection(_connectionString))
+                {
+                    await conn.OpenAsync();
+
+                    using (var cmd = new SqlCommand("[EJ].[spChangeEvent]", conn))
+                    {
+                        cmd.CommandType = System.Data.CommandType.StoredProcedure;
+                        cmd.Parameters.AddWithValue("@UserID", userId.Value);
+                        cmd.Parameters.AddWithValue("@Json", requestBody);
+
+                        int returnValue = 0;
+                        string returnDescription = string.Empty;
+                        int? newEventId = null;
+                        string action = string.Empty;
+
+                        using (var reader = await cmd.ExecuteReaderAsync())
+                        {
+                            if (await reader.ReadAsync())
+                            {
+                                returnValue = Convert.ToInt32(reader["ReturnValue"]);
+                                returnDescription = reader["ReturnDescription"]?.ToString() ?? string.Empty;
+                                newEventId = reader["EventID"] != DBNull.Value ? Convert.ToInt32(reader["EventID"]) : null;
+                                action = reader["Action"]?.ToString() ?? string.Empty;
+                            }
+                            
+                            if (returnValue != 1)
+                            {
+                                var errRes = req.CreateResponse(HttpStatusCode.BadRequest);
+                                await errRes.WriteStringAsync(returnDescription);
+                                return errRes;
+                            }
+
+                            var response = req.CreateResponse(HttpStatusCode.OK);
+                            await response.WriteAsJsonAsync(new { 
+                                ReturnValue = returnValue, 
+                                ReturnDescription = returnDescription,
+                                EventID = newEventId,
+                                Action = action
+                            });
+
+                            if (returnValue == 1 && await reader.NextResultAsync())
+                            {
+                                if (_serviceBusClient != null)
+                                {
+                                    await using var sender = _serviceBusClient.CreateSender("communication");
+                                    var messages = new System.Collections.Generic.List<Azure.Messaging.ServiceBus.ServiceBusMessage>();
+
+                                    while (await reader.ReadAsync())
+                                    {
+                                        var targetGroup = reader["TargetGroup"]?.ToString();
+                                        var eventName = reader["EventName"]?.ToString();
+                                        var payloadJson = reader["PayloadJson"]?.ToString();
+
+                                        if (!string.IsNullOrEmpty(targetGroup) && !string.IsNullOrEmpty(eventName) && !string.IsNullOrEmpty(payloadJson))
+                                        {
+                                            var sbPayload = new { TargetGroup = targetGroup, EventName = eventName, PayloadJson = System.Text.Json.JsonSerializer.Deserialize<object>(payloadJson) };
+                                            var sbMessage = new Azure.Messaging.ServiceBus.ServiceBusMessage(System.Text.Json.JsonSerializer.Serialize(sbPayload))
+                                            {
+                                                MessageId = Guid.NewGuid().ToString()
+                                            };
+                                            sbMessage.ApplicationProperties["channel"] = "signalr";
+                                            messages.Add(sbMessage);
+                                        }
+                                    }
+
+                                    if (messages.Count > 0)
+                                    {
+                                        await sender.SendMessagesAsync(messages);
+                                        _logger.LogInformation($"Successfully published {messages.Count} messages to ServiceBus as a batch.");
+                                    }
+                                }
+                            }
+
+                            return response;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error changing event.");
+                var errorRes = req.CreateResponse(HttpStatusCode.InternalServerError);
+                await errorRes.WriteStringAsync($"Error: {ex.Message} | StackTrace: {ex.StackTrace}");
+                return errorRes;
+            }
+        }
+
+        [Function("SaveEventContent")]
+        public async Task<HttpResponseData> SaveEventContent([HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "event/content/save")] HttpRequestData req)
+        {
+            int? userId = JwtValidator.ValidateTokenAndGetUserId(req, _jwtSecret);
+
+            if (userId == null)
+            {
+                var unauthRes = req.CreateResponse(HttpStatusCode.Unauthorized);
+                await unauthRes.WriteStringAsync("Érvénytelen vagy lejárt bejelentkezési token!");
+                return unauthRes;
+            }
+
+            try
+            {
+                string requestBody = await new System.IO.StreamReader(req.Body).ReadToEndAsync();
+                
+                using (var conn = new SqlConnection(_connectionString))
+                {
+                    await conn.OpenAsync();
+
+                    using (var cmd = new SqlCommand("[EJ].[spSaveEventContent]", conn))
+                    {
+                        cmd.CommandType = System.Data.CommandType.StoredProcedure;
+                        cmd.Parameters.AddWithValue("@UserID", userId.Value);
+                        cmd.Parameters.AddWithValue("@Json", requestBody);
+
+                        int returnValue = 0;
+                        string returnDescription = string.Empty;
+                        int? newEventId = null;
+
+                        using (var reader = await cmd.ExecuteReaderAsync())
+                        {
+                            if (await reader.ReadAsync())
+                            {
+                                returnValue = Convert.ToInt32(reader["ReturnValue"]);
+                                returnDescription = reader["ReturnDescription"]?.ToString() ?? string.Empty;
+                                newEventId = reader["EventID"] != DBNull.Value ? Convert.ToInt32(reader["EventID"]) : null;
+                            }
+                            
+                            if (returnValue != 1)
+                            {
+                                var errRes = req.CreateResponse(HttpStatusCode.BadRequest);
+                                await errRes.WriteStringAsync(returnDescription);
+                                return errRes;
+                            }
+
+                            var response = req.CreateResponse(HttpStatusCode.OK);
+                            await response.WriteAsJsonAsync(new { 
+                                ReturnValue = returnValue, 
+                                ReturnDescription = returnDescription,
+                                EventID = newEventId
+                            });
+                            return response;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error saving event content.");
+                var errorRes = req.CreateResponse(HttpStatusCode.InternalServerError);
+                await errorRes.WriteStringAsync($"Error: {ex.Message} | StackTrace: {ex.StackTrace}");
+                return errorRes;
+            }
+        }
+
+        [Function("ImportInvitations")]
+        public async Task<HttpResponseData> ImportInvitations([HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "event/invite/import")] HttpRequestData req)
+        {
+            int? userId = JwtValidator.ValidateTokenAndGetUserId(req, _jwtSecret);
+
+            if (userId == null)
+            {
+                var unauthRes = req.CreateResponse(HttpStatusCode.Unauthorized);
+                await unauthRes.WriteStringAsync("Érvénytelen vagy lejárt bejelentkezési token!");
+                return unauthRes;
+            }
+
+            try
+            {
+                string requestBody = await new System.IO.StreamReader(req.Body).ReadToEndAsync();
+                
+                using (var conn = new SqlConnection(_connectionString))
+                {
+                    await conn.OpenAsync();
+
+                    using (var cmd = new SqlCommand("[EJ].[spImportInvitations]", conn))
+                    {
+                        cmd.CommandType = System.Data.CommandType.StoredProcedure;
+                        cmd.Parameters.AddWithValue("@UserID", userId.Value);
+                        cmd.Parameters.AddWithValue("@Json", requestBody);
+
+                        int returnValue = 0;
+                        string returnDescription = string.Empty;
+                        int? newEventId = null;
+                        Guid? batchId = null;
+
+                        using (var reader = await cmd.ExecuteReaderAsync())
+                        {
+                            if (await reader.ReadAsync())
+                            {
+                                returnValue = Convert.ToInt32(reader["ReturnValue"]);
+                                returnDescription = reader["ReturnDescription"]?.ToString() ?? string.Empty;
+                                newEventId = reader["EventID"] != DBNull.Value ? Convert.ToInt32(reader["EventID"]) : null;
+                                batchId = reader["BatchID"] != DBNull.Value ? Guid.Parse(reader["BatchID"].ToString()) : null;
+                            }
+                            
+                            var rows = new List<Dictionary<string, object>>();
+                            if (await reader.NextResultAsync())
+                            {
+                                while (await reader.ReadAsync())
+                                {
+                                    var row = new Dictionary<string, object>();
+                                    for (int i = 0; i < reader.FieldCount; i++)
+                                    {
+                                        row[reader.GetName(i)] = reader.IsDBNull(i) ? null : reader.GetValue(i);
+                                    }
+                                    rows.Add(row);
+                                }
+                            }
+
+                            if (returnValue != 1)
+                            {
+                                var errRes = req.CreateResponse(HttpStatusCode.BadRequest);
+                                await errRes.WriteAsJsonAsync(new {
+                                    ReturnValue = returnValue,
+                                    ReturnDescription = returnDescription,
+                                    EventID = newEventId,
+                                    BatchID = batchId,
+                                    Rows = rows
+                                });
+                                return errRes;
+                            }
+                            if (batchId != null)
+                            {
+                                if (_serviceBusClient != null)
+                                {
+                                    await using var sender = _serviceBusClient.CreateSender("communication");
+                                    var payload = new { MailId = batchId.Value };
+                                    var sbMessage = new Azure.Messaging.ServiceBus.ServiceBusMessage(System.Text.Json.JsonSerializer.Serialize(payload))
+                                    {
+                                        MessageId = batchId.Value.ToString()
+                                    };
+                                    sbMessage.ApplicationProperties["channel"] = "email";
+                                    await sender.SendMessageAsync(sbMessage);
+                                    _logger.LogInformation($"Successfully published BatchID {batchId.Value} to ServiceBus.");
+                                }
+                                else
+                                {
+                                    _logger.LogWarning("ServiceBusConnection is missing. Could not publish BatchID messages.");
+                                }
+                            }
+
+                            var response = req.CreateResponse(HttpStatusCode.OK);
+                            await response.WriteAsJsonAsync(new { 
+                                ReturnValue = returnValue, 
+                                ReturnDescription = returnDescription,
+                                EventID = newEventId,
+                                BatchID = batchId,
+                                Rows = rows
+                            });
+                            return response;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error importing invitations.");
+                var errorRes = req.CreateResponse(HttpStatusCode.InternalServerError);
+                await errorRes.WriteStringAsync($"Error: {ex.Message} | StackTrace: {ex.StackTrace}");
+                return errorRes;
             }
         }
     }

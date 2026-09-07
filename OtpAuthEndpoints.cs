@@ -396,15 +396,17 @@ namespace EventJoy.Api
                     }
                 }
 
-                if (result1 != null && result1.TryGetValue("MailID", out var mailIdObj) && mailIdObj != null)
+                if (result1 != null)
                 {
-                    if (Guid.TryParse(mailIdObj.ToString(), out Guid mailId))
+                    var sbConnString = Environment.GetEnvironmentVariable("ServiceBusConnection");
+                    if (!string.IsNullOrEmpty(sbConnString))
                     {
-                        var sbConnString = Environment.GetEnvironmentVariable("ServiceBusConnection");
-                        if (!string.IsNullOrEmpty(sbConnString))
+                        await using var client = new Azure.Messaging.ServiceBus.ServiceBusClient(sbConnString);
+                        await using var sender = client.CreateSender("communication");
+
+                        // Handle Email
+                        if (result1.TryGetValue("MailID", out var mailIdObj) && mailIdObj != null && Guid.TryParse(mailIdObj.ToString(), out Guid mailId))
                         {
-                            await using var client = new Azure.Messaging.ServiceBus.ServiceBusClient(sbConnString);
-                            await using var sender = client.CreateSender("communication");
                             var payload = new { MailId = mailId };
                             var sbMessage = new Azure.Messaging.ServiceBus.ServiceBusMessage(System.Text.Json.JsonSerializer.Serialize(payload))
                             {
@@ -414,10 +416,23 @@ namespace EventJoy.Api
                             await sender.SendMessageAsync(sbMessage);
                             _logger.LogInformation($"Successfully published MailID {mailId} to ServiceBus.");
                         }
-                        else
+
+                        // Handle SMS
+                        if (result1.TryGetValue("SMSID", out var smsIdObj) && smsIdObj != null && int.TryParse(smsIdObj.ToString(), out int smsId))
                         {
-                            _logger.LogWarning("ServiceBusConnection is missing. Could not publish MailID.");
+                            var payload = new { SmsId = smsId };
+                            var sbMessage = new Azure.Messaging.ServiceBus.ServiceBusMessage(System.Text.Json.JsonSerializer.Serialize(payload))
+                            {
+                                MessageId = smsId.ToString() // unique message id
+                            };
+                            sbMessage.ApplicationProperties["channel"] = "sms";
+                            await sender.SendMessageAsync(sbMessage);
+                            _logger.LogInformation($"Successfully published SMSID {smsId} to ServiceBus.");
                         }
+                    }
+                    else
+                    {
+                        _logger.LogWarning("ServiceBusConnection is missing. Could not publish messages.");
                     }
                 }
 
@@ -739,6 +754,178 @@ namespace EventJoy.Api
             return list;
         }
 
+        [Function("LinkSocial")]
+        public async Task<HttpResponseData> LinkSocial([HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "auth/link-social")] HttpRequestData req)
+        {
+            int? userId = JwtValidator.ValidateTokenAndGetUserId(req, _jwtSecret);
+            if (userId == null)
+            {
+                var unauthRes = req.CreateResponse(System.Net.HttpStatusCode.Unauthorized);
+                await unauthRes.WriteStringAsync("Érvénytelen vagy lejárt bejelentkezési token!");
+                return unauthRes;
+            }
+
+            string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
+            var data = JsonConvert.DeserializeObject<LinkSocialRequest>(requestBody);
+
+            if (data == null)
+                return req.CreateResponse(System.Net.HttpStatusCode.BadRequest);
+
+            Dictionary<string, object?>? result1 = null;
+            Dictionary<string, object?>? userObj = null;
+            var socialLogins = new List<Dictionary<string, object?>>();
+            var loginIdentifiers = new List<Dictionary<string, object?>>();
+
+            try
+            {
+                using (var conn = new SqlConnection(_connectionString))
+                {
+                    await conn.OpenAsync();
+                    using (var cmd = new SqlCommand("[EJ].[spLinkSocial]", conn))
+                    {
+                        cmd.CommandType = System.Data.CommandType.StoredProcedure;
+                        cmd.Parameters.AddWithValue("@UserID", userId.Value);
+                        cmd.Parameters.AddWithValue("@Provider", data.Provider ?? (object)DBNull.Value);
+                        cmd.Parameters.AddWithValue("@ProviderId", data.ProviderId ?? (object)DBNull.Value);
+                        cmd.Parameters.AddWithValue("@EmailAddress", data.EmailAddress ?? (object)DBNull.Value);
+                        cmd.Parameters.AddWithValue("@FirstName", data.FirstName ?? (object)DBNull.Value);
+                        cmd.Parameters.AddWithValue("@LastName", data.LastName ?? (object)DBNull.Value);
+
+                        using (var reader = await cmd.ExecuteReaderAsync())
+                        {
+                            if (await reader.ReadAsync()) result1 = ReadCurrentRow(reader);
+
+                            if (result1 != null && result1.TryGetValue("ReturnValue", out var rvObj) && Convert.ToInt32(rvObj) == 1)
+                            {
+                                if (await reader.NextResultAsync() && await reader.ReadAsync()) // ResultName 'User'
+                                {
+                                    if (await reader.NextResultAsync() && await reader.ReadAsync()) userObj = ReadCurrentRow(reader);
+                                }
+                                if (await reader.NextResultAsync() && await reader.ReadAsync()) // ResultName 'SocialLogins'
+                                {
+                                    if (await reader.NextResultAsync())
+                                    {
+                                        while (await reader.ReadAsync()) socialLogins.Add(ReadCurrentRow(reader));
+                                    }
+                                }
+                                if (await reader.NextResultAsync() && await reader.ReadAsync()) // ResultName 'LoginIdentifiers'
+                                {
+                                    if (await reader.NextResultAsync())
+                                    {
+                                        while (await reader.ReadAsync()) loginIdentifiers.Add(ReadCurrentRow(reader));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (result1 != null && result1.TryGetValue("ReturnValue", out var rv) && Convert.ToInt32(rv) != 1)
+                {
+                    var badReq = req.CreateResponse(System.Net.HttpStatusCode.BadRequest);
+                    await badReq.WriteAsJsonAsync(new { Result1 = result1 });
+                    return badReq;
+                }
+
+                var response = req.CreateResponse(System.Net.HttpStatusCode.OK);
+                await response.WriteAsJsonAsync(new
+                {
+                    Result1 = result1,
+                    Result2 = new { User = userObj, SocialLogins = socialLogins, LoginIdentifiers = loginIdentifiers }
+                });
+                return response;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "LinkSocial Error");
+                return req.CreateResponse(System.Net.HttpStatusCode.InternalServerError);
+            }
+        }
+
+        [Function("UnlinkSocial")]
+        public async Task<HttpResponseData> UnlinkSocial([HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "auth/unlink-social")] HttpRequestData req)
+        {
+            int? userId = JwtValidator.ValidateTokenAndGetUserId(req, _jwtSecret);
+            if (userId == null)
+            {
+                var unauthRes = req.CreateResponse(System.Net.HttpStatusCode.Unauthorized);
+                await unauthRes.WriteStringAsync("Érvénytelen vagy lejárt bejelentkezési token!");
+                return unauthRes;
+            }
+
+            string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
+            var data = JsonConvert.DeserializeObject<UnlinkSocialRequest>(requestBody);
+
+            if (data == null)
+                return req.CreateResponse(System.Net.HttpStatusCode.BadRequest);
+
+            Dictionary<string, object?>? result1 = null;
+            Dictionary<string, object?>? userObj = null;
+            var socialLogins = new List<Dictionary<string, object?>>();
+            var loginIdentifiers = new List<Dictionary<string, object?>>();
+
+            try
+            {
+                using (var conn = new SqlConnection(_connectionString))
+                {
+                    await conn.OpenAsync();
+                    using (var cmd = new SqlCommand("[EJ].[spUnlinkSocial]", conn))
+                    {
+                        cmd.CommandType = System.Data.CommandType.StoredProcedure;
+                        cmd.Parameters.AddWithValue("@UserID", userId.Value);
+                        cmd.Parameters.AddWithValue("@Provider", data.Provider ?? (object)DBNull.Value);
+
+                        using (var reader = await cmd.ExecuteReaderAsync())
+                        {
+                            if (await reader.ReadAsync()) result1 = ReadCurrentRow(reader);
+
+                            if (result1 != null && result1.TryGetValue("ReturnValue", out var rvObj) && Convert.ToInt32(rvObj) == 1)
+                            {
+                                if (await reader.NextResultAsync() && await reader.ReadAsync())
+                                {
+                                    if (await reader.NextResultAsync() && await reader.ReadAsync()) userObj = ReadCurrentRow(reader);
+                                }
+                                if (await reader.NextResultAsync() && await reader.ReadAsync())
+                                {
+                                    if (await reader.NextResultAsync())
+                                    {
+                                        while (await reader.ReadAsync()) socialLogins.Add(ReadCurrentRow(reader));
+                                    }
+                                }
+                                if (await reader.NextResultAsync() && await reader.ReadAsync())
+                                {
+                                    if (await reader.NextResultAsync())
+                                    {
+                                        while (await reader.ReadAsync()) loginIdentifiers.Add(ReadCurrentRow(reader));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (result1 != null && result1.TryGetValue("ReturnValue", out var rv) && Convert.ToInt32(rv) != 1)
+                {
+                    var badReq = req.CreateResponse(System.Net.HttpStatusCode.BadRequest);
+                    await badReq.WriteAsJsonAsync(new { Result1 = result1 });
+                    return badReq;
+                }
+
+                var response = req.CreateResponse(System.Net.HttpStatusCode.OK);
+                await response.WriteAsJsonAsync(new
+                {
+                    Result1 = result1,
+                    Result2 = new { User = userObj, SocialLogins = socialLogins, LoginIdentifiers = loginIdentifiers }
+                });
+                return response;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "UnlinkSocial Error");
+                return req.CreateResponse(System.Net.HttpStatusCode.InternalServerError);
+            }
+        }
+
         private string GenerateRefreshToken()
         {
             var randomNumber = new byte[32];
@@ -759,7 +946,6 @@ namespace EventJoy.Api
                 return builder.ToString();
             }
         }
-
     }
 
     public class CheckIdentityDto { public string? IdentityValue { get; set; } }
@@ -785,5 +971,19 @@ namespace EventJoy.Api
         public string? LastName { get; set; }
         public string DeviceId { get; set; } = string.Empty;
         public string? DeviceName { get; set; }
+    }
+
+    public class LinkSocialRequest
+    {
+        public string Provider { get; set; } = string.Empty;
+        public string ProviderId { get; set; } = string.Empty;
+        public string? EmailAddress { get; set; }
+        public string? FirstName { get; set; }
+        public string? LastName { get; set; }
+    }
+
+    public class UnlinkSocialRequest
+    {
+        public string Provider { get; set; } = string.Empty;
     }
 }

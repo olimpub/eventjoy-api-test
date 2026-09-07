@@ -124,8 +124,24 @@ namespace EventJoy.Api
                 for (int i = 0; i < headers.Count; i += chunkSize)
                 {
                     var chunkHeaders = headers.Skip(i).Take(chunkSize).ToList();
-                    await SendBulkToMailerSendAsync(chunkHeaders, parameters);
+                    string? bulkEmailId = await SendBulkToMailerSendAsync(chunkHeaders, parameters);
                     
+                    if (!string.IsNullOrEmpty(bulkEmailId))
+                    {
+                        using (var conn = new SqlConnection(_connectionString))
+                        {
+                            await conn.OpenAsync();
+                            using (var updateCmd = new SqlCommand("[EJ].[spUpdateEmailOutboxStatus]", conn))
+                            {
+                                updateCmd.CommandType = System.Data.CommandType.StoredProcedure;
+                                updateCmd.Parameters.AddWithValue("@UID", mailId);
+                                updateCmd.Parameters.AddWithValue("@MailerSendID", bulkEmailId);
+                                updateCmd.Parameters.AddWithValue("@StatusID", 2); // 2 = Sent To MailerSend
+                                await updateCmd.ExecuteNonQueryAsync();
+                            }
+                        }
+                    }
+
                     // Opcionális delay a 15 request / minute limit miatt, ha több ezer email van
                     if (headers.Count > chunkSize && (i + chunkSize) < headers.Count)
                     {
@@ -142,7 +158,7 @@ namespace EventJoy.Api
             }
         }
 
-        private async Task SendBulkToMailerSendAsync(List<EmailHeaderDto> headers, List<EmailParamDto> parameters)
+        private async Task<string?> SendBulkToMailerSendAsync(List<EmailHeaderDto> headers, List<EmailParamDto> parameters)
         {
             // A MailerSend /v1/bulk-email végpontja egy tömböt vár, amiben külön üzenet objektumok vannak
             var bulkPayload = new List<object>();
@@ -196,6 +212,22 @@ namespace EventJoy.Api
                 _logger.LogError($"MailerSend Bulk API error: {response.StatusCode} - {errorBody}");
                 throw new Exception($"MailerSend error: {response.StatusCode}");
             }
+
+            var successBody = await response.Content.ReadAsStringAsync();
+            try
+            {
+                var jsonResponse = JsonDocument.Parse(successBody);
+                if (jsonResponse.RootElement.TryGetProperty("bulk_email_id", out JsonElement idElement))
+                {
+                    return idElement.GetString();
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to parse bulk_email_id from MailerSend response.");
+            }
+            
+            return null;
         }
     }
 
