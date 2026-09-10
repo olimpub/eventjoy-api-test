@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
@@ -50,7 +50,7 @@ namespace EventJoy.Api
             if (userId == null)
             {
                 var unauthRes = req.CreateResponse(HttpStatusCode.Unauthorized);
-                await unauthRes.WriteStringAsync("Érvénytelen vagy lejárt bejelentkezési token!");
+                await unauthRes.WriteStringAsync("Ă‰rvĂ©nytelen vagy lejĂˇrt bejelentkezĂ©si token!");
                 return unauthRes;
             }
 
@@ -85,7 +85,7 @@ namespace EventJoy.Api
 
                             var dynamicResults = new Dictionary<string, object?>();
 
-                            // 2. RS: ResultList (a nevek listája)
+                            // 2. RS: ResultList (a nevek listĂˇja)
                             var resultNames = new List<string>();
                             if (await reader.NextResultAsync())
                             {
@@ -99,7 +99,7 @@ namespace EventJoy.Api
                                 }
                             }
 
-                            // A további result set-ek beolvasása a kapott nevek alapján
+                            // A tovĂˇbbi result set-ek beolvasĂˇsa a kapott nevek alapjĂˇn
                             int nameIndex = 0;
                             if (resultNames.Count > 0 && resultNames[0].Equals("ReturnStatus", StringComparison.OrdinalIgnoreCase))
                             {
@@ -147,7 +147,7 @@ namespace EventJoy.Api
             if (userId == null)
             {
                 var unauthRes = req.CreateResponse(HttpStatusCode.Unauthorized);
-                await unauthRes.WriteStringAsync("Érvénytelen vagy lejárt bejelentkezési token!");
+                await unauthRes.WriteStringAsync("Ă‰rvĂ©nytelen vagy lejĂˇrt bejelentkezĂ©si token!");
                 return unauthRes;
             }
 
@@ -182,7 +182,7 @@ namespace EventJoy.Api
 
                             var dynamicResults = new Dictionary<string, object?>();
 
-                            // 2. RS: ResultList (a nevek listája)
+                            // 2. RS: ResultList (a nevek listĂˇja)
                             var resultNames = new List<string>();
                             if (await reader.NextResultAsync())
                             {
@@ -196,7 +196,7 @@ namespace EventJoy.Api
                                 }
                             }
 
-                            // A további result set-ek beolvasása a kapott nevek alapján
+                            // A tovĂˇbbi result set-ek beolvasĂˇsa a kapott nevek alapjĂˇn
                             int nameIndex = 0;
                             if (resultNames.Count > 0 && resultNames[0].Equals("ReturnStatus", StringComparison.OrdinalIgnoreCase))
                             {
@@ -234,12 +234,12 @@ namespace EventJoy.Api
 
                                 if (!isActive || statusId != 1)
                                 {
-                                    // Ha inaktív vagy nem Meghívott státuszban van, akkor "already_accepted" (vagy lejárt/elutasított)
+                                    // Ha inaktĂ­v vagy nem MeghĂ­vott stĂˇtuszban van, akkor "already_accepted" (vagy lejĂˇrt/elutasĂ­tott)
                                     nextStep = "already_accepted";
                                 }
                                 else
                                 {
-                                    // Session ellenőrzése
+                                    // Session ellenĹ‘rzĂ©se
                                     int? sessionUserId = null;
                                     try
                                     {
@@ -247,7 +247,7 @@ namespace EventJoy.Api
                                     }
                                     catch
                                     {
-                                        // Nem kötelező a token, így a hiba esetén null marad
+                                        // Nem kĂ¶telezĹ‘ a token, Ă­gy a hiba esetĂ©n null marad
                                     }
 
                                     if (sessionUserId.HasValue)
@@ -291,7 +291,7 @@ namespace EventJoy.Api
             if (!Guid.TryParse(uid, out Guid parsedUid))
             {
                 var badReqRes = req.CreateResponse(HttpStatusCode.BadRequest);
-                await badReqRes.WriteStringAsync("Érvénytelen UID formátum!");
+                await badReqRes.WriteStringAsync("Ă‰rvĂ©nytelen UID formĂˇtum!");
                 return badReqRes;
             }
 
@@ -326,7 +326,7 @@ namespace EventJoy.Api
 
                             var dynamicResults = new Dictionary<string, object?>();
 
-                            // 2. RS: ResultList (a nevek listája)
+                            // 2. RS: ResultList (a nevek listĂˇja)
                             var resultNames = new List<string>();
                             if (await reader.NextResultAsync())
                             {
@@ -340,7 +340,7 @@ namespace EventJoy.Api
                                 }
                             }
 
-                            // A további result set-ek beolvasása a kapott nevek alapján
+                            // A tovĂˇbbi result set-ek beolvasĂˇsa a kapott nevek alapjĂˇn
                             int nameIndex = 0;
                             if (resultNames.Count > 0 && resultNames[0].Equals("ReturnStatus", StringComparison.OrdinalIgnoreCase))
                             {
@@ -387,7 +387,7 @@ namespace EventJoy.Api
             if (userId == null)
             {
                 var unauthRes = req.CreateResponse(HttpStatusCode.Unauthorized);
-                await unauthRes.WriteStringAsync("Érvénytelen vagy lejárt bejelentkezési token!");
+                await unauthRes.WriteStringAsync("Ă‰rvĂ©nytelen vagy lejĂˇrt bejelentkezĂ©si token!");
                 return unauthRes;
             }
 
@@ -453,7 +453,7 @@ namespace EventJoy.Api
             if (userId == null)
             {
                 var unauthRes = req.CreateResponse(HttpStatusCode.Unauthorized);
-                await unauthRes.WriteStringAsync("Érvénytelen vagy lejárt bejelentkezési token!");
+                await unauthRes.WriteStringAsync("Ă‰rvĂ©nytelen vagy lejĂˇrt bejelentkezĂ©si token!");
                 return unauthRes;
             }
 
@@ -556,7 +556,7 @@ namespace EventJoy.Api
             if (userId == null)
             {
                 var unauthRes = req.CreateResponse(HttpStatusCode.Unauthorized);
-                await unauthRes.WriteStringAsync("Érvénytelen vagy lejárt bejelentkezési token!");
+                await unauthRes.WriteStringAsync("Ă‰rvĂ©nytelen vagy lejĂˇrt bejelentkezĂ©si token!");
                 return unauthRes;
             }
 
@@ -622,7 +622,7 @@ namespace EventJoy.Api
             if (userId == null)
             {
                 var unauthRes = req.CreateResponse(HttpStatusCode.Unauthorized);
-                await unauthRes.WriteStringAsync("Érvénytelen vagy lejárt bejelentkezési token!");
+                await unauthRes.WriteStringAsync("Ă‰rvĂ©nytelen vagy lejĂˇrt bejelentkezĂ©si token!");
                 return unauthRes;
             }
 
@@ -652,15 +652,15 @@ namespace EventJoy.Api
                                 returnValue = Convert.ToInt32(reader["ReturnValue"]);
                                 returnDescription = reader["ReturnDescription"]?.ToString() ?? string.Empty;
                                 newEventId = reader["EventID"] != DBNull.Value ? Convert.ToInt32(reader["EventID"]) : null;
-                                batchId = reader["BatchID"] != DBNull.Value ? Guid.Parse(reader["BatchID"].ToString()) : null;
+                                batchId = reader["BatchID"] != DBNull.Value ? Guid.Parse(reader["BatchID"].ToString()!) : null;
                             }
                             
-                            var rows = new List<Dictionary<string, object>>();
+                            var rows = new List<Dictionary<string, object?>>();
                             if (await reader.NextResultAsync())
                             {
                                 while (await reader.ReadAsync())
                                 {
-                                    var row = new Dictionary<string, object>();
+                                    var row = new Dictionary<string, object?>();
                                     for (int i = 0; i < reader.FieldCount; i++)
                                     {
                                         row[reader.GetName(i)] = reader.IsDBNull(i) ? null : reader.GetValue(i);
@@ -722,5 +722,290 @@ namespace EventJoy.Api
                 return errorRes;
             }
         }
+        [Function("AddWalkinParticipant")]
+        public async Task<HttpResponseData> AddWalkinParticipant([HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "event/invite/walkin")] HttpRequestData req)
+        {
+            int? userId = JwtValidator.ValidateTokenAndGetUserId(req, _jwtSecret);
+
+            if (userId == null)
+            {
+                var unauthRes = req.CreateResponse(HttpStatusCode.Unauthorized);
+                await unauthRes.WriteStringAsync("Érvénytelen vagy lejárt bejelentkezési token!");
+                return unauthRes;
+            }
+
+            try
+            {
+                string requestBody = await new System.IO.StreamReader(req.Body).ReadToEndAsync();
+                var dto = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(requestBody);
+                
+                long eventId = dto.GetProperty("EventID").GetInt64();
+                string? firstName = dto.TryGetProperty("FirstName", out var fn) ? fn.GetString() : null;
+                string? lastName = dto.TryGetProperty("LastName", out var ln) ? ln.GetString() : null;
+                string? email = dto.TryGetProperty("Email", out var em) ? em.GetString() : null;
+                string? phone = dto.TryGetProperty("Phone", out var ph) ? ph.GetString() : null;
+                string? organizationName = dto.TryGetProperty("OrganizationName", out var org) ? org.GetString() : null;
+                string? teamName = dto.TryGetProperty("TeamName", out var tm) ? tm.GetString() : null;
+                string? regionName = dto.TryGetProperty("RegionName", out var rg) ? rg.GetString() : null;
+                string? companyName = dto.TryGetProperty("CompanyName", out var cp) ? cp.GetString() : null;
+
+                using (var conn = new SqlConnection(_connectionString))
+                {
+                    await conn.OpenAsync();
+
+                    using (var cmd = new SqlCommand("[EJ].[spAddWalkinParticipant]", conn))
+                    {
+                        cmd.CommandType = System.Data.CommandType.StoredProcedure;
+                        cmd.Parameters.AddWithValue("@EventID", eventId);
+                        cmd.Parameters.AddWithValue("@UserID", userId.Value);
+                        cmd.Parameters.AddWithValue("@FirstName", (object?)firstName ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@LastName", (object?)lastName ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@Email", (object?)email ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@Phone", (object?)phone ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@OrganizationName", (object?)organizationName ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@TeamName", (object?)teamName ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@RegionName", (object?)regionName ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@CompanyName", (object?)companyName ?? DBNull.Value);
+
+                        int returnValue = 0;
+                        string returnDescription = string.Empty;
+                        long? eventUserId = null;
+                        Guid? batchId = null;
+
+                        using (var reader = await cmd.ExecuteReaderAsync())
+                        {
+                            if (await reader.ReadAsync())
+                            {
+                                returnValue = Convert.ToInt32(reader["ReturnValue"]);
+                                returnDescription = reader["ReturnDescription"]?.ToString() ?? string.Empty;
+                                eventUserId = reader["EventUserID"] != DBNull.Value ? Convert.ToInt64(reader["EventUserID"]) : null;
+                                if (reader.FieldCount > 3)
+                                {
+                                    batchId = reader["BatchID"] != DBNull.Value ? Guid.Parse(reader["BatchID"].ToString()!) : null;
+                                }
+                            }
+                        }
+
+                        if (returnValue == 400)
+                        {
+                            var badReq = req.CreateResponse(HttpStatusCode.BadRequest);
+                            await badReq.WriteStringAsync(returnDescription);
+                            return badReq;
+                        }
+                        if (returnValue == 403)
+                        {
+                            var forbid = req.CreateResponse(HttpStatusCode.Forbidden);
+                            await forbid.WriteStringAsync(returnDescription);
+                            return forbid;
+                        }
+                        if (returnValue == 409)
+                        {
+                            var confReq = req.CreateResponse(HttpStatusCode.Conflict);
+                            await confReq.WriteStringAsync(returnDescription);
+                            return confReq;
+                        }
+                        if (returnValue != 0)
+                        {
+                            var serverErr = req.CreateResponse(HttpStatusCode.InternalServerError);
+                            await serverErr.WriteStringAsync(returnDescription);
+                            return serverErr;
+                        }
+
+                        // Send Mailer ServiceBus Message
+                        if (batchId != null)
+                        {
+                            if (_serviceBusClient != null)
+                            {
+                                await using var sender = _serviceBusClient.CreateSender("communication");
+                                var payload = new { MailId = batchId.Value };
+                                var sbMessage = new Azure.Messaging.ServiceBus.ServiceBusMessage(System.Text.Json.JsonSerializer.Serialize(payload))
+                                {
+                                    MessageId = batchId.Value.ToString()
+                                };
+                                sbMessage.ApplicationProperties["channel"] = "email";
+                                await sender.SendMessageAsync(sbMessage);
+                                _logger.LogInformation($"Successfully published BatchID {batchId.Value} to ServiceBus for Walkin.");
+                            }
+                            else
+                            {
+                                _logger.LogWarning("ServiceBusConnection is missing. Could not publish Walkin BatchID message.");
+                            }
+                        }
+
+                        var response = req.CreateResponse(HttpStatusCode.OK);
+                        await response.WriteAsJsonAsync(new
+                        {
+                            ReturnValue = returnValue,
+                            ReturnDescription = returnDescription,
+                            EventUserID = eventUserId
+                        });
+                        return response;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in AddWalkinParticipant.");
+                var errorRes = req.CreateResponse(HttpStatusCode.InternalServerError);
+                await errorRes.WriteStringAsync($"Error: {ex.Message}");
+                return errorRes;
+            }
+        }
+        [Function("GetEventJoinInfo")]
+        public async Task<HttpResponseData> GetEventJoinInfo([HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "event/join/{eventUid}")] HttpRequestData req, string eventUid)
+        {
+            try
+            {
+                if (!Guid.TryParse(eventUid, out var uid))
+                {
+                    var badRes = req.CreateResponse(HttpStatusCode.BadRequest);
+                    await badRes.WriteStringAsync("Érvénytelen EventUID.");
+                    return badRes;
+                }
+
+                using (var conn = new SqlConnection(_connectionString))
+                {
+                    await conn.OpenAsync();
+
+                    using (var cmd = new SqlCommand("[EJ].[spGetEventJoinInfo]", conn))
+                    {
+                        cmd.CommandType = System.Data.CommandType.StoredProcedure;
+                        cmd.Parameters.AddWithValue("@EventUID", uid);
+
+                        using (var reader = await cmd.ExecuteReaderAsync())
+                        {
+                            if (await reader.ReadAsync())
+                            {
+                                int returnValue = Convert.ToInt32(reader["ReturnValue"]);
+                                string returnDescription = reader["ReturnDescription"]?.ToString() ?? string.Empty;
+
+                                if (returnValue == 404)
+                                {
+                                    var notFound = req.CreateResponse(HttpStatusCode.NotFound);
+                                    await notFound.WriteStringAsync(returnDescription);
+                                    return notFound;
+                                }
+
+                                var response = req.CreateResponse(HttpStatusCode.OK);
+                                await response.WriteAsJsonAsync(new
+                                {
+                                    EventUID = reader["EventUID"],
+                                    EventID = reader["EventID"],
+                                    Title = reader["Title"],
+                                    CheckInOpen = Convert.ToBoolean(reader["CheckInOpen"]),
+                                    EventStatusName = reader["EventStatusName"]?.ToString() ?? string.Empty
+                                });
+                                return response;
+                            }
+                        }
+                    }
+                }
+                
+                var err = req.CreateResponse(HttpStatusCode.InternalServerError);
+                await err.WriteStringAsync("Ismeretlen hiba.");
+                return err;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting event join info.");
+                var errorRes = req.CreateResponse(HttpStatusCode.InternalServerError);
+                await errorRes.WriteStringAsync($"Error: {ex.Message}");
+                return errorRes;
+            }
+        }
+
+        [Function("JoinEvent")]
+        public async Task<HttpResponseData> JoinEvent([HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "event/join")] HttpRequestData req)
+        {
+            int? userId = JwtValidator.ValidateTokenAndGetUserId(req, _jwtSecret);
+
+            if (userId == null)
+            {
+                var unauthRes = req.CreateResponse(HttpStatusCode.Unauthorized);
+                await unauthRes.WriteStringAsync("Érvénytelen vagy lejárt bejelentkezési token!");
+                return unauthRes;
+            }
+
+            try
+            {
+                string requestBody = await new System.IO.StreamReader(req.Body).ReadToEndAsync();
+                var dto = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(requestBody);
+                
+                string? eventUidStr = dto.TryGetProperty("EventUID", out var uidProp) ? uidProp.GetString() : null;
+                if (string.IsNullOrEmpty(eventUidStr) || !Guid.TryParse(eventUidStr, out var eventUid))
+                {
+                    var badReq = req.CreateResponse(HttpStatusCode.BadRequest);
+                    await badReq.WriteStringAsync("Érvénytelen vagy hiányzó EventUID.");
+                    return badReq;
+                }
+
+                using (var conn = new SqlConnection(_connectionString))
+                {
+                    await conn.OpenAsync();
+
+                    using (var cmd = new SqlCommand("[EJ].[spJoinEvent]", conn))
+                    {
+                        cmd.CommandType = System.Data.CommandType.StoredProcedure;
+                        cmd.Parameters.AddWithValue("@EventUID", eventUid);
+                        cmd.Parameters.AddWithValue("@UserID", userId.Value);
+
+                        int returnValue = 0;
+                        string returnDescription = string.Empty;
+                        long? eventId = null;
+                        long? eventUserId = null;
+
+                        using (var reader = await cmd.ExecuteReaderAsync())
+                        {
+                            if (await reader.ReadAsync())
+                            {
+                                returnValue = Convert.ToInt32(reader["ReturnValue"]);
+                                returnDescription = reader["ReturnDescription"]?.ToString() ?? string.Empty;
+                                eventId = reader["EventID"] != DBNull.Value ? Convert.ToInt64(reader["EventID"]) : null;
+                                eventUserId = reader["EventUserID"] != DBNull.Value ? Convert.ToInt64(reader["EventUserID"]) : null;
+                            }
+                        }
+
+                        if (returnValue == 400)
+                        {
+                            var badReq = req.CreateResponse(HttpStatusCode.BadRequest);
+                            await badReq.WriteStringAsync(returnDescription);
+                            return badReq;
+                        }
+                        if (returnValue == 404)
+                        {
+                            var notFound = req.CreateResponse(HttpStatusCode.NotFound);
+                            await notFound.WriteStringAsync(returnDescription);
+                            return notFound;
+                        }
+                        if (returnValue != 0)
+                        {
+                            var serverErr = req.CreateResponse(HttpStatusCode.InternalServerError);
+                            await serverErr.WriteStringAsync(returnDescription);
+                            return serverErr;
+                        }
+
+                        var response = req.CreateResponse(HttpStatusCode.OK);
+                        await response.WriteAsJsonAsync(new
+                        {
+                            ReturnValue = returnValue,
+                            ReturnDescription = returnDescription,
+                            EventID = eventId,
+                            EventUserID = eventUserId
+                        });
+                        return response;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in JoinEvent.");
+                var errorRes = req.CreateResponse(HttpStatusCode.InternalServerError);
+                await errorRes.WriteStringAsync($"Error: {ex.Message}");
+                return errorRes;
+            }
+        }
     }
 }
+
+
+

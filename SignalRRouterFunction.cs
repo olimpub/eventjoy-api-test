@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.Azure.Functions.Worker;
@@ -9,9 +9,9 @@ namespace EventJoy.Api
 {
     public class SignalRMessagePayload
     {
-        public string TargetGroup { get; set; }
-        public string EventName { get; set; }
-        public object PayloadJson { get; set; }
+        public string TargetGroup { get; set; } = string.Empty;
+        public string EventName { get; set; } = string.Empty;
+        public object? PayloadJson { get; set; }
     }
 
     public class SignalRRouterFunction
@@ -25,7 +25,7 @@ namespace EventJoy.Api
 
         [Function("SignalRRouterFunction")]
         [SignalROutput(HubName = "eventHub", ConnectionStringSetting = "AzureSignalRConnectionString")]
-        public SignalRMessageAction Run(
+        public SignalRMessageAction? Run(
             [ServiceBusTrigger("communication", "signalr", Connection = "ServiceBusConnection")] string mySbMsg)
         {
             _logger.LogInformation($"SignalRRouter received message: {mySbMsg}");
@@ -45,7 +45,7 @@ namespace EventJoy.Api
                 return new SignalRMessageAction(payload.EventName)
                 {
                     GroupName = payload.TargetGroup,
-                    Arguments = new[] { payload.PayloadJson }
+                    Arguments = new object[] { payload.PayloadJson! }
                 };
             }
             catch (Exception ex)
@@ -56,3 +56,5 @@ namespace EventJoy.Api
         }
     }
 }
+
+

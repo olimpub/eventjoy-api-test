@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Net;
 using System.Threading.Tasks;
@@ -25,7 +25,7 @@ namespace EventJoy.Api
         }
 
         // =========================================================================
-        // ADO.NET HELPER FÜGGVÉNY A RESULT SET-EK BEOLVASÁSÁHOZ
+        // ADO.NET HELPER FĂśGGVĂ‰NY A RESULT SET-EK BEOLVASĂSĂHOZ
         // =========================================================================
         private async Task<List<Dictionary<string, object?>>> ReadResultSetAsync(SqlDataReader reader)
         {
@@ -51,7 +51,7 @@ namespace EventJoy.Api
             {
                 _logger.LogWarning("Unauthorized access attempt to GetUserData.");
                 var unauthRes = req.CreateResponse(HttpStatusCode.Unauthorized);
-                await unauthRes.WriteStringAsync("Érvénytelen vagy lejárt bejelentkezési token!");
+                await unauthRes.WriteStringAsync("Ă‰rvĂ©nytelen vagy lejĂˇrt bejelentkezĂ©si token!");
                 return unauthRes;
             }
 
@@ -71,7 +71,7 @@ namespace EventJoy.Api
 
                         using (var reader = await cmd.ExecuteReaderAsync())
                         {
-                            // 1. Result Set (Állapot)
+                            // 1. Result Set (Ăllapot)
                             if (await reader.ReadAsync())
                             {
                                 returnValue = Convert.ToInt32(reader["ReturnValue"]);
@@ -87,7 +87,7 @@ namespace EventJoy.Api
 
                             var dynamicResults = new Dictionary<string, object?>();
 
-                            // 2. RS: ResultList (a nevek listája)
+                            // 2. RS: ResultList (a nevek listĂˇja)
                             var resultNames = new List<string>();
                             if (await reader.NextResultAsync())
                             {
@@ -101,7 +101,7 @@ namespace EventJoy.Api
                                 }
                             }
 
-                            // A további result set-ek beolvasása a kapott nevek alapján
+                            // A tovĂˇbbi result set-ek beolvasĂˇsa a kapott nevek alapjĂˇn
                             int nameIndex = 0;
                             if (resultNames.Count > 0 && resultNames[0].Equals("ReturnStatus", StringComparison.OrdinalIgnoreCase))
                             {
@@ -122,7 +122,7 @@ namespace EventJoy.Api
                                     currentName = $"ExtraResultSet_{nameIndex + 1}";
                                 }
 
-                                // Egyedi objektumok kezelése (amelyeknél nem listát vár a frontend)
+                                // Egyedi objektumok kezelĂ©se (amelyeknĂ©l nem listĂˇt vĂˇr a frontend)
                                 if (currentName.Equals("User", StringComparison.OrdinalIgnoreCase) ||
                                     currentName.Equals("Settings", StringComparison.OrdinalIgnoreCase) ||
                                     currentName.Equals("BillingAddress", StringComparison.OrdinalIgnoreCase))
@@ -149,7 +149,7 @@ namespace EventJoy.Api
                                 nameIndex++;
                             }
 
-                            // VISSZAKÜLDÉS A FRONTENDNEK
+                            // VISSZAKĂśLDĂ‰S A FRONTENDNEK
                             var response = req.CreateResponse(HttpStatusCode.OK);
                             await response.WriteAsJsonAsync(dynamicResults);
                             
@@ -164,5 +164,69 @@ namespace EventJoy.Api
                 return req.CreateResponse(HttpStatusCode.InternalServerError);
             }
         }
+        [Function("SaveUser")]
+        public async Task<HttpResponseData> SaveUser([HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "user/save")] HttpRequestData req)
+        {
+            int? userId = JwtValidator.ValidateTokenAndGetUserId(req, _jwtSecret);
+
+            if (userId == null)
+            {
+                _logger.LogWarning("Unauthorized access attempt to SaveUser.");
+                var unauthRes = req.CreateResponse(HttpStatusCode.Unauthorized);
+                await unauthRes.WriteStringAsync("Ă‰rvĂ©nytelen vagy lejĂˇrt bejelentkezĂ©si token!");
+                return unauthRes;
+            }
+
+            try
+            {
+                string requestBody = await new System.IO.StreamReader(req.Body).ReadToEndAsync();
+                var data = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(requestBody);
+                
+                string firstName = data.TryGetProperty("FirstName", out var fnProp) ? fnProp.GetString() ?? "" : "";
+                string lastName = data.TryGetProperty("LastName", out var lnProp) ? lnProp.GetString() ?? "" : "";
+
+                using (var conn = new SqlConnection(_connectionString))
+                {
+                    await conn.OpenAsync();
+
+                    using (var cmd = new SqlCommand("[EJ].[spSaveUser]", conn))
+                    {
+                        cmd.CommandType = System.Data.CommandType.StoredProcedure;
+                        cmd.Parameters.AddWithValue("@UserID", userId.Value);
+                        cmd.Parameters.AddWithValue("@FirstName", firstName);
+                        cmd.Parameters.AddWithValue("@LastName", lastName);
+
+                        int returnValue = 0;
+                        string returnDescription = string.Empty;
+
+                        using (var reader = await cmd.ExecuteReaderAsync())
+                        {
+                            if (await reader.ReadAsync())
+                            {
+                                returnValue = Convert.ToInt32(reader["ReturnValue"]);
+                                returnDescription = reader["ReturnDescription"]?.ToString() ?? string.Empty;
+                            }
+
+                            if (returnValue != 1)
+                            {
+                                var errRes = req.CreateResponse(HttpStatusCode.BadRequest);
+                                await errRes.WriteStringAsync(returnDescription);
+                                return errRes;
+                            }
+
+                            var response = req.CreateResponse(HttpStatusCode.OK);
+                            await response.WriteAsJsonAsync(new { ReturnValue = returnValue, ReturnDescription = returnDescription });
+                            return response;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error saving user data.");
+                return req.CreateResponse(HttpStatusCode.InternalServerError);
+            }
+        }
     }
 }
+

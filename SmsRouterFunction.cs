@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Net.Http;
 using System.Text;
@@ -39,7 +39,7 @@ namespace EventJoy.Api
             try
             {
                 var sbPayload = JsonConvert.DeserializeObject<dynamic>(mySbMsg);
-                smsId = (int)sbPayload.SmsId;
+                smsId = (int)sbPayload!.SmsId;
             }
             catch (Exception ex)
             {
@@ -152,3 +152,4 @@ namespace EventJoy.Api
         }
     }
 }
+

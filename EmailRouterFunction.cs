@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
@@ -17,7 +17,7 @@ namespace EventJoy.Api
         private readonly string _connectionString;
         private readonly HttpClient _httpClient;
         
-        // Cseréld ki a saját MailerSend tokenedre (vagy tedd local.settings.json-be)
+        // CserĂ©ld ki a sajĂˇt MailerSend tokenedre (vagy tedd local.settings.json-be)
         private readonly string _mailerSendToken = Environment.GetEnvironmentVariable("MailerSendToken") ?? "API_TOKEN_HERE";
 
         public EmailRouterFunction(ILoggerFactory loggerFactory, IHttpClientFactory httpClientFactory)
@@ -73,7 +73,7 @@ namespace EventJoy.Api
                             // RS2: ResultList
                             if (!await reader.NextResultAsync()) return;
                             
-                            // Skipeljük a ResultList sorait, nem létfontosságú a C# feldolgozáshoz
+                            // SkipeljĂĽk a ResultList sorait, nem lĂ©tfontossĂˇgĂş a C# feldolgozĂˇshoz
                             while (await reader.ReadAsync()) { }
 
                             // RS3: EmailHeaders
@@ -142,10 +142,10 @@ namespace EventJoy.Api
                         }
                     }
 
-                    // Opcionális delay a 15 request / minute limit miatt, ha több ezer email van
+                    // OpcionĂˇlis delay a 15 request / minute limit miatt, ha tĂ¶bb ezer email van
                     if (headers.Count > chunkSize && (i + chunkSize) < headers.Count)
                     {
-                        await Task.Delay(4000); // 4 másodperc késleltetés chunkok között
+                        await Task.Delay(4000); // 4 mĂˇsodperc kĂ©sleltetĂ©s chunkok kĂ¶zĂ¶tt
                     }
                 }
 
@@ -154,18 +154,18 @@ namespace EventJoy.Api
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error processing Email Service Bus message.");
-                throw; // Újrapróbálkozás a Service Bus által
+                throw; // ĂšjraprĂłbĂˇlkozĂˇs a Service Bus Ăˇltal
             }
         }
 
         private async Task<string?> SendBulkToMailerSendAsync(List<EmailHeaderDto> headers, List<EmailParamDto> parameters)
         {
-            // A MailerSend /v1/bulk-email végpontja egy tömböt vár, amiben külön üzenet objektumok vannak
+            // A MailerSend /v1/bulk-email vĂ©gpontja egy tĂ¶mbĂ¶t vĂˇr, amiben kĂĽlĂ¶n ĂĽzenet objektumok vannak
             var bulkPayload = new List<object>();
 
             foreach (var header in headers)
             {
-                // Kikeressük az ehhez az EmailID-hoz tartozó paramétereket
+                // KikeressĂĽk az ehhez az EmailID-hoz tartozĂł paramĂ©tereket
                 var emailParams = parameters.Where(p => p.EmailID == header.EmailID).ToList();
                 var variablesDictionary = new Dictionary<string, string>();
                 foreach (var p in emailParams)
@@ -179,12 +179,9 @@ namespace EventJoy.Api
                 var emailObject = new
                 {
                     from = new { email = header.SenderMail, name = "EventJoy" },
-                    to = new[] { 
-                        new { 
-                            email = header.RecipientEmail, 
-                            name = header.RecipientName ?? string.Empty 
-                        } 
-                    },
+                    to = string.IsNullOrEmpty(header.RecipientName) 
+                        ? new object[] { new { email = header.RecipientEmail } } 
+                        : new object[] { new { email = header.RecipientEmail, name = header.RecipientName } },
                     subject = header.MsgSubject,
                     template_id = header.TemplateID,
                     variables = variablesDictionary.Any() ? new[]
@@ -192,6 +189,13 @@ namespace EventJoy.Api
                         new {
                             email = header.RecipientEmail,
                             substitutions = variablesDictionary.Select(kv => new { var = kv.Key, value = kv.Value }).ToArray()
+                        }
+                    } : null,
+                    personalization = variablesDictionary.Any() ? new[]
+                    {
+                        new {
+                            email = header.RecipientEmail,
+                            data = variablesDictionary
                         }
                     } : null
                 };
@@ -256,3 +260,5 @@ namespace EventJoy.Api
         public string? ParamValue { get; set; }
     }
 }
+
+

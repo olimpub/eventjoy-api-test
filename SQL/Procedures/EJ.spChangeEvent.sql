@@ -1,4 +1,4 @@
-CREATE   PROCEDURE [EJ].[spChangeEvent]
+CREATE OR ALTER PROCEDURE [EJ].[spChangeEvent]
     @Json NVARCHAR(MAX),
     @UserID INT = NULL
 AS
@@ -65,6 +65,162 @@ BEGIN
                 updatedAt = @Now
             WHERE id IN (SELECT ID FROM @TargetEventUserIDs)
               AND EventID = @EventID;
+        END
+        ELSE IF @Action = N'Pta.ShowDisplay'
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM [EJ].[tblEventUser] eu
+                JOIN [EJ].[tblEventRole] er ON eu.EventRoleID = er.id
+                JOIN [EJ].[tblRole] r ON er.RoleID = r.id
+                WHERE eu.EventID = @EventID AND eu.UserID = @UserID AND eu.ActiveFlg = 1 AND r.RoleTypeID IN (1, 2)
+            )
+            BEGIN
+                THROW 50403, N'Nincs jogosultságod módosítani a kivetítést.', 1;
+            END
+
+            DECLARE @DispState NVARCHAR(16) = JSON_VALUE(@Json, '$.Payload.State');
+            DECLARE @DispScope NVARCHAR(16) = JSON_VALUE(@Json, '$.Payload.Scope');
+            DECLARE @DispRoundId INT = COALESCE(JSON_VALUE(@Json, '$.Payload.RoundId'), JSON_VALUE(@Json, '$.Payload.EventRoundID'));
+            DECLARE @DispGroupKey NVARCHAR(32) = JSON_VALUE(@Json, '$.Payload.GroupKey');
+            
+            IF @DispGroupKey = 'player' SET @DispGroupKey = NULL;
+
+            IF @DispState = 'leaderboard'
+            BEGIN
+                IF @DispRoundId IS NULL
+                BEGIN
+                    THROW 50400, N'Publikált forduló megadása kötelező a leaderboardhoz.', 1;
+                END
+                
+                IF NOT EXISTS (
+                    SELECT 1 FROM [PTA].[tblEventRound] r
+                    WHERE r.EventRoundID = @DispRoundId AND r.EventID = @EventID AND r.EventRoundStatusID = 5
+                )
+                BEGIN
+                    THROW 50400, N'Előbb publikáld a fordulót.', 1;
+                END
+            END
+
+            MERGE INTO [PTA].[tblPtaDisplayState] AS target
+            USING (SELECT @EventID AS EventID) AS source
+            ON target.EventID = source.EventID
+            WHEN MATCHED THEN
+                UPDATE SET 
+                    State = @DispState,
+                    Scope = @DispScope,
+                    RoundId = @DispRoundId,
+                    GroupKey = @DispGroupKey,
+                    UpdatedAtUtc = @Now
+            WHEN NOT MATCHED THEN
+                INSERT (EventID, State, Scope, RoundId, GroupKey, UpdatedAtUtc)
+                VALUES (@EventID, @DispState, @DispScope, @DispRoundId, @DispGroupKey, @Now);
+
+            DECLARE @DisplayPayload NVARCHAR(MAX) = (
+                SELECT 
+                    @Action AS Action,
+                    @EventID AS EventID,
+                    @DispState AS State,
+                    @DispScope AS Scope,
+                    @DispRoundId AS RoundId,
+                    @DispRoundId AS EventRoundID,
+                    @DispGroupKey AS GroupKey
+                FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+            );
+
+            INSERT INTO @SignalRTargets (TargetGroup, EventName, CustomPayload)
+            VALUES ('event_' + CAST(@EventID AS VARCHAR) + '_display', @Action, @DisplayPayload);
+        END
+        ELSE IF @Action = N'EventUser.PatchContact'
+        BEGIN
+            -- Payload.EventUserID + LastName + FirstName + Email + Phone
+            -- szervező; tblUser globális módosítás! (specifikáció megváltoztatva)
+
+            IF NOT EXISTS (
+                SELECT 1 FROM [EJ].[tblEventUser] eu
+                JOIN [EJ].[tblEventRole] er ON eu.EventRoleID = er.id
+                JOIN [EJ].[tblRole] r ON er.RoleID = r.id
+                WHERE eu.UserID = @UserID AND eu.EventID = @EventID AND r.RoleTypeID = 1 AND eu.ActiveFlg = 1
+            )
+            BEGIN
+                THROW 50403, N'Nincs jogosultságod módosítani a résztvevő adatait.', 1;
+            END
+
+            DECLARE @PatchEventUserID BIGINT = JSON_VALUE(@Json, '$.Payload.EventUserID');
+            DECLARE @PatchLastName NVARCHAR(100) = JSON_VALUE(@Json, '$.Payload.LastName');
+            DECLARE @PatchFirstName NVARCHAR(100) = JSON_VALUE(@Json, '$.Payload.FirstName');
+            DECLARE @PatchEmail NVARCHAR(250) = JSON_VALUE(@Json, '$.Payload.Email');
+            DECLARE @PatchPhone NVARCHAR(100) = JSON_VALUE(@Json, '$.Payload.Phone');
+
+            IF LTRIM(RTRIM(ISNULL(@PatchLastName, ''))) = '' OR LTRIM(RTRIM(ISNULL(@PatchFirstName, ''))) = ''
+            BEGIN
+                THROW 50400, N'A vezetéknév és a keresztnév megadása kötelező.', 1;
+            END
+
+            IF LTRIM(RTRIM(ISNULL(@PatchEmail, ''))) = ''
+            BEGIN
+                THROW 50400, N'Add meg az e-mail címet.', 1;
+            END
+
+            IF @PatchEmail NOT LIKE '%_@__%.__%'
+            BEGIN
+                THROW 50400, N'Érvénytelen e-mail cím.', 1;
+            END
+
+            -- HU Phone validation
+            IF LTRIM(RTRIM(ISNULL(@PatchPhone, ''))) = '' SET @PatchPhone = NULL;
+
+            IF @PatchPhone IS NOT NULL AND (@PatchPhone NOT LIKE '+36%' AND @PatchPhone NOT LIKE '06%' AND @PatchPhone NOT LIKE '36%')
+            BEGIN
+                THROW 50400, N'Érvénytelen telefonszám.', 1;
+            END
+
+            DECLARE @TargetUserIDToPatch BIGINT = (SELECT UserID FROM [EJ].[tblEventUser] WHERE id = @PatchEventUserID AND EventID = @EventID AND ActiveFlg = 1);
+            IF @TargetUserIDToPatch IS NULL
+            BEGIN
+                THROW 50404, N'A résztvevő nem található.', 1;
+            END
+
+            -- Check duplication ON THE SAME EVENT
+            IF EXISTS (
+                SELECT 1 FROM [EJ].[tblEventUser] eu
+                JOIN [EJ].[tblUser] u ON eu.UserID = u.id
+                WHERE eu.EventID = @EventID AND eu.ActiveFlg = 1 AND eu.id <> @PatchEventUserID
+                AND (LOWER(u.EmailAddress) = LOWER(@PatchEmail) OR (u.PhoneNumber IS NOT NULL AND u.PhoneNumber = @PatchPhone))
+            )
+            BEGIN
+                THROW 50409, N'Ez a résztvevő már szerepel a listán.', 1;
+            END
+            
+            -- ALSO check global email duplication (because EmailAddress is unique in tblUserLoginIdentifier / tblUser)
+            IF EXISTS (
+                SELECT 1 FROM [EJ].[tblUser] WHERE LOWER(EmailAddress) = LOWER(@PatchEmail) AND id <> @TargetUserIDToPatch
+            )
+            BEGIN
+                THROW 50409, N'Ez az e-mail cím már egy másik felhasználóhoz tartozik a rendszerben. Nem lehet módosítani.', 1;
+            END
+
+            UPDATE [EJ].[tblUser]
+            SET LastName = @PatchLastName,
+                FirstName = @PatchFirstName,
+                EmailAddress = LOWER(@PatchEmail),
+                PhoneNumber = @PatchPhone,
+                LastUpdatedUserID = @UserID,
+                updatedAt = @Now
+            WHERE id = @TargetUserIDToPatch;
+
+            UPDATE [EJ].[tblUserLoginIdentifier]
+            SET IdentifierValueRaw = LOWER(@PatchEmail),
+                IdentifierValueNormalized = LOWER(@PatchEmail),
+                updatedAt = @Now
+            WHERE UserID = @TargetUserIDToPatch AND IdentifierTypeID = 1;
+
+            UPDATE [PTA].[tblEventPlayer]
+            SET NickName = @PatchLastName + ' ' + @PatchFirstName,
+                LastUpdatedUserID = @UserID,
+                updatedAt = @Now
+            WHERE EventUserID = @PatchEventUserID AND EventID = @EventID;
+
+            INSERT INTO @TargetEventUserIDs (ID) VALUES (@PatchEventUserID);
         END
         ELSE IF @Action = N'EventUser.Apply'
         BEGIN
@@ -440,7 +596,7 @@ BEGIN
         END
 
         -- 2. Alapértelmezett (visszhang) Célcsoportok generálása
-        IF @Action NOT IN (N'Pta.SetRoundStatus', N'Pta.CloseRound', N'Pta.PublishRound')
+        IF @Action NOT IN (N'Pta.SetRoundStatus', N'Pta.CloseRound', N'Pta.PublishRound', N'Pta.ShowDisplay')
         BEGIN
             IF @OrgNotify = 1 INSERT INTO @SignalRTargets (TargetGroup, EventName, CustomPayload) VALUES ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', @Action, @HotloadJson);
             IF @ContNotify = 1 INSERT INTO @SignalRTargets (TargetGroup, EventName, CustomPayload) VALUES ('event_' + CAST(@EventID AS VARCHAR) + '_contributor', @Action, @HotloadJson);
@@ -558,3 +714,4 @@ BEGIN
         SELECT -1 AS ReturnValue, ERROR_MESSAGE() AS ReturnDescription, NULL AS EventID, NULL AS Action;
     END CATCH
 END
+
