@@ -1,6 +1,9 @@
-﻿
+﻿SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+GO
+
     
-    CREATE PROCEDURE [EJ].[spRegisterUser]
+    ALTER PROCEDURE [EJ].[spRegisterUser]
         @EmailAddress NVARCHAR(300),
         @PhoneNumber NVARCHAR(50),
         @PasswordHash NVARCHAR(512)
@@ -10,30 +13,31 @@
         DECLARE @ReturnValue INT = 1, @ReturnDescription VARCHAR(MAX) = 'Success'
         
         BEGIN TRY
-            -- Ellenőrizzük, hogy létezik-e már a rendszerben ez a fiók
+            -- EllenĹ‘rizzĂĽk, hogy lĂ©tezik-e mĂˇr a rendszerben ez a fiĂłk
             IF EXISTS(SELECT 1 FROM [EJ].[tblUser] WHERE (EmailAddress = @EmailAddress AND @EmailAddress IS NOT NULL) OR (PhoneNumber = @PhoneNumber AND
   @PhoneNumber IS NOT NULL))
             BEGIN
                 SET @ReturnValue = -1
-                SET @ReturnDescription = N'Ez az e-mail cím vagy telefonszám már regisztrálva van!'
+                SET @ReturnDescription = N'Ez az e-mail cĂ­m vagy telefonszĂˇm mĂˇr regisztrĂˇlva van!'
                 SELECT @ReturnValue AS ReturnValue, @ReturnDescription AS ReturnDescription
                 RETURN
             END
     
-            -- Felhasználó Létrehozása (StatusID = 2, vagyis aktív)
+            -- FelhasznĂˇlĂł LĂ©trehozĂˇsa (StatusID = 2, vagyis aktĂ­v)
             INSERT INTO [EJ].[tblUser] (EmailAddress, PhoneNumber, Password, StatusID)
             VALUES (@EmailAddress, @PhoneNumber, @PasswordHash, 2)
             
             DECLARE @NewUserId INT = SCOPE_IDENTITY()
+            UPDATE [EJ].[tblUser] SET LastUpdatedUserID = @NewUserId WHERE id = @NewUserId;
     
             -- RESULT SET 1
             SELECT @ReturnValue AS ReturnValue, @ReturnDescription AS ReturnDescription
     
-            -- RESULT SET 2 (Ebből csinál a C# JWT tokent)
+            -- RESULT SET 2 (EbbĹ‘l csinĂˇl a C# JWT tokent)
             SELECT 
                 @NewUserId AS UserID,
                 @EmailAddress AS EmailAddress,
-                @PhoneNumber AS PhoneNumber
+                @PhoneNumber AS PhoneNumber, 0 AS IsSysadmin
                 
         END TRY
         BEGIN CATCH
@@ -42,4 +46,5 @@
             SELECT @ReturnValue AS ReturnValue, @ReturnDescription AS ReturnDescription
         END CATCH
     END
+
 

@@ -1,6 +1,9 @@
-﻿
+﻿SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+GO
+
     
-    CREATE PROCEDURE [EJ].[spVerifyOTP]
+    ALTER PROCEDURE [EJ].[spVerifyOTP]
         @IdentityValue NVARCHAR(300),
         @ValidationCode NVARCHAR(10)
     AS
@@ -11,7 +14,7 @@
         BEGIN TRY
             DECLARE @UserId INT;
     
-            -- 1. Megkeressük a usert az IdentityValue (E-mail/Telefon) alapján
+            -- 1. MegkeressĂĽk a usert az IdentityValue (E-mail/Telefon) alapjĂˇn
             SELECT @UserId = Id 
             FROM [EJ].[tblUser] 
             WHERE EmailAddress = @IdentityValue OR PhoneNumber = @IdentityValue;
@@ -19,36 +22,37 @@
             IF @UserId IS NULL
             BEGIN
                 SET @ReturnValue = -1
-                SET @ReturnDescription = 'Érvénytelen felhasználó!'
+                SET @ReturnDescription = 'Ă‰rvĂ©nytelen felhasznĂˇlĂł!'
                 SELECT @ReturnValue AS ReturnValue, @ReturnDescription AS ReturnDescription
                 RETURN
             END
     
-            -- 2. Ellenőrizzük az OTP kódot a megtalált UserID-hoz
+            -- 2. EllenĹ‘rizzĂĽk az OTP kĂłdot a megtalĂˇlt UserID-hoz
             IF EXISTS(SELECT 1 FROM [EJ].[tblUser]  WHERE id = @UserId AND ValidationCode = @ValidationCode AND ValidationCodeExpiry > GETDATE())
             BEGIN
-                -- Beállítjuk felhasználtra
-                UPDATE [EJ].[tblUser] SET ValidationCode = NULL,ValidationCodeExpiry=NULL  WHERE id = @UserId
+                -- BeĂˇllĂ­tjuk felhasznĂˇltra
+                UPDATE [EJ].[tblUser] SET ValidationCode = NULL,ValidationCodeExpiry=NULL, LastUpdatedUserID = @UserId  WHERE id = @UserId
                 
-                -- Ha eddig "Pending" (1) volt a státusza, most aktiváljuk (2)
-                UPDATE [EJ].[tblUser] SET StatusID = 2 WHERE Id = @UserId AND StatusID = 1
+                -- Ha eddig "Pending" (1) volt a stĂˇtusza, most aktivĂˇljuk (2)
+                UPDATE [EJ].[tblUser] SET StatusID = 2, LastUpdatedUserID = @UserId WHERE Id = @UserId AND StatusID = 1
     
                 -- RESULT SET 1
                 SELECT @ReturnValue AS ReturnValue, @ReturnDescription AS ReturnDescription
     
-                -- RESULT SET 2 (Ebből készül a JWT Token)
+                -- RESULT SET 2 (EbbĹ‘l kĂ©szĂĽl a JWT Token)
                 SELECT TOP 1 
                     Id AS UserID, 
                     EmailAddress, 
                     FirstName, 
-                    LastName
+                    LastName,
+                    IsSysadmin
                 FROM [EJ].[tblUser]
                 WHERE Id = @UserId
             END
             ELSE
             BEGIN
                 SET @ReturnValue = -1
-                SET @ReturnDescription = N'Érvénytelen kód!'
+                SET @ReturnDescription = N'Ă‰rvĂ©nytelen kĂłd!'
                 SELECT @ReturnValue AS ReturnValue, @ReturnDescription AS ReturnDescription
             END
         END TRY
@@ -58,4 +62,5 @@
             SELECT @ReturnValue AS ReturnValue, @ReturnDescription AS ReturnDescription
         END CATCH
     END
+
 

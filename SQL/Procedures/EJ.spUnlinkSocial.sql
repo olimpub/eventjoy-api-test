@@ -1,23 +1,26 @@
-CREATE PROCEDURE [EJ].[spUnlinkSocial]
+﻿SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+GO
+ALTER PROCEDURE [EJ].[spUnlinkSocial]
     @UserID BIGINT,
     @Provider NVARCHAR(50)
 AS
 BEGIN
     SET NOCOUNT ON;
-    DECLARE @ReturnValue INT = 1, @ReturnDescription VARCHAR(MAX) = N'Fiók leválasztva.';
+    DECLARE @ReturnValue INT = 1, @ReturnDescription VARCHAR(MAX) = N'FiĂłk levĂˇlasztva.';
 
     BEGIN TRY
         BEGIN TRANSACTION;
 
         IF @Provider NOT IN ('Google', 'Facebook')
-            THROW 50000, N'Ismeretlen belépési mód.', 1;
+            THROW 50000, N'Ismeretlen belĂ©pĂ©si mĂłd.', 1;
 
         DECLARE @CurrentGoogleId NVARCHAR(256), @CurrentFacebookId NVARCHAR(256), @CurrentAppleId NVARCHAR(256);
         SELECT @CurrentGoogleId = GoogleId, @CurrentFacebookId = FacebookId, @CurrentAppleId = AppleId
         FROM [EJ].[tblUser] WHERE id = @UserID;
 
         IF (@Provider = 'Google' AND @CurrentGoogleId IS NULL) OR (@Provider = 'Facebook' AND @CurrentFacebookId IS NULL)
-            THROW 50000, N'Nincs csatolt fiók.', 1;
+            THROW 50000, N'Nincs csatolt fiĂłk.', 1;
 
         -- Check last login path
         DECLARE @ActiveIdentifiers INT = 0;
@@ -31,12 +34,13 @@ BEGIN
         IF @Provider = 'Facebook' AND @CurrentAppleId IS NOT NULL SET @RemainingSocials = @RemainingSocials + 1;
 
         IF @ActiveIdentifiers = 0 AND @RemainingSocials = 0
-            THROW 50000, N'Legalább egy belépési módot hagyj meg (e-mail, telefon vagy másik fiók).', 1;
+            THROW 50000, N'LegalĂˇbb egy belĂ©pĂ©si mĂłdot hagyj meg (e-mail, telefon vagy mĂˇsik fiĂłk).', 1;
 
         -- Unlink
         UPDATE [EJ].[tblUser]
         SET GoogleId = CASE WHEN @Provider = 'Google' THEN NULL ELSE GoogleId END,
             FacebookId = CASE WHEN @Provider = 'Facebook' THEN NULL ELSE FacebookId END,
+            LastUpdatedUserID = @UserID,
             updatedAt = SYSDATETIMEOFFSET()
         WHERE id = @UserID;
 
@@ -72,3 +76,4 @@ BEGIN
         SELECT @ReturnValue AS ReturnValue, @ReturnDescription AS ReturnDescription;
     END CATCH
 END
+

@@ -1,4 +1,7 @@
-﻿--Amikor megjön a válasz, hogy a MailerSend felküldése sikeres volt, akkor a státuszt 2-re állítjuk, és a MailerSendID-t is beírjuk.
+﻿SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+GO
+--Amikor megjön a válasz, hogy a MailerSend felküldése sikeres volt, akkor a státuszt 2-re állítjuk, és a MailerSendID-t is beírjuk.
 CREATE   PROCEDURE [EJ].[spUpdateEmailOutboxStatus]
 	@UID UNIQUEIDENTIFIER,
 	@MailerSendID VARCHAR(100),
@@ -34,4 +37,5 @@ CREATE   PROCEDURE [EJ].[spUpdateEmailOutboxStatus]
 			SELECT @ReturnValue AS ReturnValue, @ReturnDescription AS ReturnDescription;
 		END CATCH
 	END
+
 

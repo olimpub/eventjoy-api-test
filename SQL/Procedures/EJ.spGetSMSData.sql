@@ -1,4 +1,7 @@
-﻿
+﻿SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+GO
+
 -- ==============================================================================================
 -- [EJ].[spGetInvitationByUid]
 -- Felelősség: Esemény meghívó (EventUser) adatainak lekérdezése egyedi azonosító alapján.
@@ -68,4 +71,5 @@ BEGIN
         SELECT @ReturnValue AS ReturnValue, @ReturnDescription AS ReturnDescription;
     END CATCH
 END
+
 

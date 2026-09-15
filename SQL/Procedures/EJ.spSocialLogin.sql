@@ -1,6 +1,9 @@
-﻿CREATE PROCEDURE [EJ].[spSocialLogin]
+﻿SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+GO
+ALTER PROCEDURE [EJ].[spSocialLogin]
     @Provider NVARCHAR(50),      -- 'Google', 'Apple', vagy 'Facebook'
-    @ProviderId NVARCHAR(256),   -- A szolgáltatótól kapott egyedi azonosító
+    @ProviderId NVARCHAR(256),   -- A szolgĂˇltatĂłtĂłl kapott egyedi azonosĂ­tĂł
     @EmailAddress NVARCHAR(300) = NULL,
     @FirstName NVARCHAR(150) = NULL,
     @LastName NVARCHAR(150) = NULL
@@ -11,7 +14,7 @@ BEGIN
     DECLARE @UserId INT = NULL;
 
     BEGIN TRY
-        -- 1. Keresés ProviderId alapján
+        -- 1. KeresĂ©s ProviderId alapjĂˇn
         IF @Provider = 'Google'
             SELECT @UserId = Id FROM [EJ].[tblUser] WHERE GoogleId = @ProviderId;
         ELSE IF @Provider = 'Apple'
@@ -19,21 +22,21 @@ BEGIN
         ELSE IF @Provider = 'Facebook'
             SELECT @UserId = Id FROM [EJ].[tblUser] WHERE FacebookId = @ProviderId;
 
-        -- 2. Ha nem találtuk ProviderId alapján, nézzük meg Email alapján!
+        -- 2. Ha nem talĂˇltuk ProviderId alapjĂˇn, nĂ©zzĂĽk meg Email alapjĂˇn!
         IF @UserId IS NULL AND @EmailAddress IS NOT NULL
         BEGIN
             SELECT @UserId = Id FROM [EJ].[tblUser] WHERE EmailAddress = @EmailAddress;
             
-            -- Ha megvan email alapján, akkor kössük hozzá a közösségi azonosítót!
+            -- Ha megvan email alapjĂˇn, akkor kĂ¶ssĂĽk hozzĂˇ a kĂ¶zĂ¶ssĂ©gi azonosĂ­tĂłt!
             IF @UserId IS NOT NULL
             BEGIN
-                IF @Provider = 'Google' UPDATE [EJ].[tblUser] SET GoogleId = @ProviderId, StatusID = 2 WHERE Id = @UserId;
-                ELSE IF @Provider = 'Apple' UPDATE [EJ].[tblUser] SET AppleId = @ProviderId, StatusID = 2 WHERE Id = @UserId;
-                ELSE IF @Provider = 'Facebook' UPDATE [EJ].[tblUser] SET FacebookId = @ProviderId, StatusID = 2 WHERE Id = @UserId;
+                IF @Provider = 'Google' UPDATE [EJ].[tblUser] SET GoogleId = @ProviderId, StatusID = 2, LastUpdatedUserID = @UserId WHERE Id = @UserId;
+                ELSE IF @Provider = 'Apple' UPDATE [EJ].[tblUser] SET AppleId = @ProviderId, StatusID = 2, LastUpdatedUserID = @UserId WHERE Id = @UserId;
+                ELSE IF @Provider = 'Facebook' UPDATE [EJ].[tblUser] SET FacebookId = @ProviderId, StatusID = 2, LastUpdatedUserID = @UserId WHERE Id = @UserId;
             END
         END
 
-        -- 3. Ha még mindig nem találtuk (Teljesen új Felhasználó)
+        -- 3. Ha mĂ©g mindig nem talĂˇltuk (Teljesen Ăşj FelhasznĂˇlĂł)
         IF @UserId IS NULL
         BEGIN
             INSERT INTO [EJ].[tblUser] (EmailAddress, FirstName, LastName, StatusID, GoogleId, AppleId, FacebookId)
@@ -41,24 +44,26 @@ BEGIN
                 @EmailAddress, 
                 @FirstName, 
                 @LastName, 
-                2, -- Aktív (mert a Google/Apple már validálta)
+                2, -- AktĂ­v (mert a Google/Apple mĂˇr validĂˇlta)
                 CASE WHEN @Provider = 'Google' THEN @ProviderId ELSE NULL END,
                 CASE WHEN @Provider = 'Apple' THEN @ProviderId ELSE NULL END,
                 CASE WHEN @Provider = 'Facebook' THEN @ProviderId ELSE NULL END
             );
             
             SET @UserId = SCOPE_IDENTITY();
+            UPDATE [EJ].[tblUser] SET LastUpdatedUserID = @UserId WHERE Id = @UserId;
         END
 
         -- RESULT SET 1
         SELECT @ReturnValue AS ReturnValue, @ReturnDescription AS ReturnDescription
 
-        -- RESULT SET 2 (Ebből készül a JWT Token)
+        -- RESULT SET 2 (EbbĹ‘l kĂ©szĂĽl a JWT Token)
         SELECT TOP 1 
             Id AS UserID, 
             EmailAddress, 
             FirstName, 
-            LastName
+            LastName,
+            IsSysadmin
         FROM [EJ].[tblUser]
         WHERE Id = @UserId
 
@@ -69,4 +74,5 @@ BEGIN
         SELECT @ReturnValue AS ReturnValue, @ReturnDescription AS ReturnDescription
     END CATCH
 END
+
 

@@ -1,12 +1,15 @@
+﻿SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+GO
 
 
 
 -- ==============================================================================================
 -- [EJ].[spGetUserData]
--- Felelősség: Csak a felhasználó saját profilja, beállításai, preferenciái, értesítései és chatjei.
+-- FelelĹ‘ssĂ©g: Csak a felhasznĂˇlĂł sajĂˇt profilja, beĂˇllĂ­tĂˇsai, preferenciĂˇi, Ă©rtesĂ­tĂ©sei Ă©s chatjei.
 -- ==============================================================================================
 
-CREATE PROCEDURE [EJ].[spGetUserData]
+CREATE OR ALTER PROCEDURE [EJ].[spGetUserData]
     @UserID BIGINT
 AS
 BEGIN
@@ -22,10 +25,10 @@ BEGIN
         ELSE
         BEGIN
             SET @ReturnValue = -1
-            SET @ReturnDescription = 'Nincs ilyen felhasználó vagy inaktív profil!'
+            SET @ReturnDescription = 'Nincs ilyen felhasznĂˇlĂł vagy inaktĂ­v profil!'
         END
 
-        -- RS 1: Visszatérési állapot
+        -- RS 1: VisszatĂ©rĂ©si Ăˇllapot
         SELECT @ReturnValue AS ReturnValue, @ReturnDescription AS ReturnDescription
         
 
@@ -56,16 +59,16 @@ BEGIN
             SELECT * FROM @Results;
 
             -- RS 2: tblUser (Alapadatok)
-            SELECT id AS UserID, FirstName, LastName, EmailAddress, StatusID, createdAt
+            SELECT id AS UserID, FirstName, LastName, IsSysadmin, EmailAddress, StatusID, createdAt
             FROM [EJ].[tblUser] WHERE id = @UserID;
 
-            -- RS 3: tblNotification (Értesítések)
+            -- RS 3: tblNotification (Ă‰rtesĂ­tĂ©sek)
             SELECT TOP 20 id AS NotificationID, NotificationTypeID, Title, MessageBody, ActionUrl, EventID, createdAt, IsRead
             FROM [EJ].[tblNotification] WHERE UserID = @UserID AND ActiveFlg = 1 ORDER BY createdAt DESC;
 
-            -- RS 4: tblChatThreadUser (Chat Szálak és Utolsó olvasott üzenet ID-k)
-            -- SÉMAMÓDOSÍTÁS KÖVETELMÉNY: Az SQL subquery elkerülése végett a Kliens (Vue/Pinia) 
-            -- számolja ki a lokális memóriában az olvasatlan üzeneteket. A szerver csak a LastReadMessageID-t adja át FYI jelleggel.
+            -- RS 4: tblChatThreadUser (Chat SzĂˇlak Ă©s UtolsĂł olvasott ĂĽzenet ID-k)
+            -- SĂ‰MAMĂ“DOSĂŤTĂS KĂ–VETELMĂ‰NY: Az SQL subquery elkerĂĽlĂ©se vĂ©gett a Kliens (Vue/Pinia) 
+            -- szĂˇmolja ki a lokĂˇlis memĂłriĂˇban az olvasatlan ĂĽzeneteket. A szerver csak a LastReadMessageID-t adja Ăˇt FYI jelleggel.
             SELECT ChatThreadID, LastReadMessageID
             FROM [EJ].[tblChatThreadUser] 
             WHERE UserID = @UserID;
@@ -84,14 +87,14 @@ BEGIN
             SELECT IdentifierTypeID, IdentifierValueRaw, IsPrimary, IsVerified
             FROM [EJ].[tblUserLoginIdentifier] WHERE UserID = @UserID AND ActiveFlg = 1;
 
-            -- RS 9: tblUserBillingAddress (Számlázási Cím)
-            -- (Feltételezve a szokásos mezőket, csak a teljes táblát lekérjük a userhez)
+            -- RS 9: tblUserBillingAddress (SzĂˇmlĂˇzĂˇsi CĂ­m)
+            -- (FeltĂ©telezve a szokĂˇsos mezĹ‘ket, csak a teljes tĂˇblĂˇt lekĂ©rjĂĽk a userhez)
             SELECT * FROM [EJ].[tblUserBillingAddress] WHERE UserID = @UserID AND ActiveFlg = 1;
 
             -- RS 10: tblDataVersion (Max)
             SELECT ISNULL(MAX(VersionNo), 0) AS MasterDataVersion FROM [EJ].[tblDataVersion] WHERE ActiveFlg = 1;
 
-            --RS 11: tblUserOrganization (A felhasználóhoz tartozó szervezetek)
+            --RS 11: tblUserOrganization (A felhasznĂˇlĂłhoz tartozĂł szervezetek)
             SELECT UO.id, UO.OrganizationID, UO.IsPrimary, UO.OrganizationUserTypeID
             FROM [EJ].[tblOrganizationUser] UO
             WHERE UO.UserID = @UserID AND UO.ActiveFlg = 1;
@@ -128,4 +131,5 @@ BEGIN
         SELECT @ReturnValue AS ReturnValue, @ReturnDescription AS ReturnDescription
     END CATCH
 END
+
 

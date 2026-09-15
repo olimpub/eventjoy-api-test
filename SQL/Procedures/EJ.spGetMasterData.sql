@@ -1,4 +1,7 @@
-﻿
+﻿SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+GO
+
 
 CREATE PROCEDURE [EJ].[spGetMasterData]
 AS
@@ -136,4 +139,5 @@ BEGIN
         SELECT @ReturnValue AS ReturnValue, @ReturnDescription AS ReturnDescription;
     END CATCH
 END
+
 

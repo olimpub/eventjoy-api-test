@@ -1,4 +1,7 @@
-﻿CREATE   PROCEDURE [EJ].[spUpdateEmailOutboxProviderStatus](
+﻿SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+GO
+CREATE   PROCEDURE [EJ].[spUpdateEmailOutboxProviderStatus](
     @MailerSendID VARCHAR(50),
     @EmailAddress VARCHAR(100),
     @ProviderStatusID SMALLINT, -- 1, Delivered: 2, Bounced, 3-Opened, 4-Clicked 
@@ -41,4 +44,5 @@ BEGIN
         SELECT @ReturnValue AS ReturnValue, @ReturnDescription AS ReturnDescription;
     END CATCH
 END
+
 

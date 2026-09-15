@@ -1,6 +1,9 @@
+﻿SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+GO
 CREATE OR ALTER PROCEDURE [EJ].[spSaveEvent]
     @Json NVARCHAR(MAX),
-    @UserID INT = NULL -- Új paraméter a JWT user miatt
+    @UserID INT = NULL -- Ăšj paramĂ©ter a JWT user miatt
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -12,18 +15,18 @@ BEGIN
         DECLARE @IsNewEvent BIT = CASE WHEN @EventID IS NULL THEN 1 ELSE 0 END;
         DECLARE @EventLocationID INT = JSON_VALUE(@Json, '$.Event.EventLocationID');
         
-        -- Időbélyeg inicializálása a konzisztens auditáláshoz
+        -- IdĹ‘bĂ©lyeg inicializĂˇlĂˇsa a konzisztens auditĂˇlĂˇshoz
         DECLARE @Now DATETIMEOFFSET = SYSDATETIMEOFFSET();
         
         -- ==========================================
-        -- 1. LOCATION (Helyszín) kezelése
+        -- 1. LOCATION (HelyszĂ­n) kezelĂ©se
         -- ==========================================
         DECLARE @LocName NVARCHAR(200) = JSON_VALUE(@Json, '$.Location.LocationName');
         IF @LocName IS NOT NULL AND @EventLocationID IS NULL
         BEGIN
-            INSERT INTO [EJ].[tblEventLocation] (LocationName, ZipCode, City, AddressLine1, Country, ActiveFlg, createdAt, updatedAt)
+            INSERT INTO [EJ].[tblEventLocation] (LocationName, ZipCode, City, AddressLine1, Country, ActiveFlg, LastUpdatedUserID, createdAt, updatedAt)
             SELECT 
-                LocationName, PostalCode, City, AddressLine1, CountryCode, 1, @Now, @Now
+                LocationName, PostalCode, City, AddressLine1, CountryCode, 1, @UserID, @Now, @Now
             FROM OPENJSON(@Json, '$.Location')
             WITH (
                 LocationName NVARCHAR(200),
@@ -37,7 +40,7 @@ BEGIN
         END
         
         -- ==========================================
-        -- 2. EVENT (Esemény) UPSERT
+        -- 2. EVENT (EsemĂ©ny) UPSERT
         -- ==========================================
         IF @IsNewEvent = 1
         BEGIN
@@ -97,7 +100,7 @@ BEGIN
         END
 
         -- ==========================================
-        -- 3. LABELS (Címkék)
+        -- 3. LABELS (CĂ­mkĂ©k)
         -- ==========================================
         SELECT 
             id AS LabelID,
@@ -128,7 +131,7 @@ BEGIN
         WHERE LabelID NOT IN (SELECT LabelID FROM [EJ].[tblEventLabel] WHERE EventID = @EventID);
 
         -- ==========================================
-        -- 4. ROLES (Szerepkörök)
+        -- 4. ROLES (SzerepkĂ¶rĂ¶k)
         -- ==========================================
         SELECT 
             TempId,
@@ -237,7 +240,7 @@ BEGIN
         LEFT JOIN @NewTicketIDs n ON i.TempId = n.TempId;
 
         -- ==========================================
-        -- 6. ROLE TICKETS (Kapcsoló tábla)
+        -- 6. ROLE TICKETS (KapcsolĂł tĂˇbla)
         -- ==========================================
         DELETE rt
         FROM [EJ].[tblEventRoleTicket] rt
@@ -256,7 +259,7 @@ BEGIN
         JOIN #IncomingTickets t ON t.TempId = j.TicketTempId;
 
         -- ==========================================
-        -- 7. PTA Beállítások
+        -- 7. PTA BeĂˇllĂ­tĂˇsok
         -- ==========================================
         IF JSON_QUERY(@Json, '$.PtaSettings') IS NOT NULL
         BEGIN
@@ -322,29 +325,29 @@ BEGIN
         END
 
         -- ==========================================
-        -- 8. Szervező (EventUser) létrehozása (csak Create esetén)
+        -- 8. SzervezĹ‘ (EventUser) lĂ©trehozĂˇsa (csak Create esetĂ©n)
         -- ==========================================
         IF @IsNewEvent = 1 AND @UserID IS NOT NULL
         BEGIN
             DECLARE @OrganizerEventRoleID INT;
             
-            -- Megpróbáljuk megkeresni a "Szervező" (1) vagy "Tulajdonos" (11) szerepkört
+            -- MegprĂłbĂˇljuk megkeresni a "SzervezĹ‘" (1) vagy "Tulajdonos" (11) szerepkĂ¶rt
             SELECT TOP 1 @OrganizerEventRoleID = NewEventRoleID
             FROM #IncomingRoles 
             WHERE RoleID IN (1, 11)
-            ORDER BY CASE WHEN RoleID = 11 THEN 1 ELSE 2 END; -- Preferáljuk a tulajdonost (11)
+            ORDER BY CASE WHEN RoleID = 11 THEN 1 ELSE 2 END; -- PreferĂˇljuk a tulajdonost (11)
 
-            -- Ha nincs sem 1-es, sem 11-es a beküldöttek között (tehát nem hoznak létre admin/tulajdonos role-t)
+            -- Ha nincs sem 1-es, sem 11-es a bekĂĽldĂ¶ttek kĂ¶zĂ¶tt (tehĂˇt nem hoznak lĂ©tre admin/tulajdonos role-t)
             IF @OrganizerEventRoleID IS NULL
             BEGIN
-                 -- Automatikusan legenerálunk egy Tulajdonos (11) szerepkört az eseményhez
+                 -- Automatikusan legenerĂˇlunk egy Tulajdonos (11) szerepkĂ¶rt az esemĂ©nyhez
                  INSERT INTO [EJ].[tblEventRole] (EventID, RoleID, ActiveFlg, LastUpdatedUserID, createdAt, updatedAt)
                  VALUES (@EventID, 11, 1, @UserID, @Now, @Now);
 
                  SET @OrganizerEventRoleID = SCOPE_IDENTITY();
             END
 
-            -- Végül beírjuk a Felhasználót az eseményhez (Jegy nélkül)
+            -- VĂ©gĂĽl beĂ­rjuk a FelhasznĂˇlĂłt az esemĂ©nyhez (Jegy nĂ©lkĂĽl)
             INSERT INTO [EJ].[tblEventUser] (
                 EventID, UserID, EventRoleID, EventUserStatusID, ActiveFlg, 
                 LastUpdatedUserID, createdAt, updatedAt
@@ -368,4 +371,5 @@ BEGIN
         SELECT -1 AS ReturnValue, ERROR_MESSAGE() AS ReturnDescription, NULL AS EventID;
     END CATCH
 END
+
 

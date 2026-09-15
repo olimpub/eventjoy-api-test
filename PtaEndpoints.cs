@@ -1,4 +1,4 @@
-﻿using Microsoft.Azure.Functions.Worker;
+using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Configuration;
 using System.Net;
@@ -299,9 +299,120 @@ namespace EventJoy.Api
                 }
             }
         }
+
+        [Function("GetEventRoundAvailableStatuses")]
+        public async Task<HttpResponseData> GetEventRoundAvailableStatuses([HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "pta/rounds/{roundId}/available-statuses")] HttpRequestData req, int roundId)
+        {
+            int? userId = JwtValidator.ValidateTokenAndGetUserId(req, _jwtSecret);
+            if (userId == null) return req.CreateResponse(HttpStatusCode.Unauthorized);
+
+            var response = req.CreateResponse(HttpStatusCode.OK);
+            using (var conn = new SqlConnection(_sqlConnectionString))
+            {
+                await conn.OpenAsync();
+                using (var cmd = new SqlCommand("[PTA].[spGetEventRoundAvailableStatuses]", conn))
+                {
+                    cmd.CommandType = CommandType.StoredProcedure;
+                    cmd.Parameters.AddWithValue("@EventRoundID", roundId);
+                    cmd.Parameters.AddWithValue("@UserID", userId.Value);
+
+                    using (var reader = await cmd.ExecuteReaderAsync())
+                    {
+                        if (await reader.ReadAsync())
+                        {
+                            int retVal = reader.GetInt32(reader.GetOrdinal("ReturnValue"));
+                            if (retVal != 1)
+                            {
+                                var errRes = req.CreateResponse(HttpStatusCode.BadRequest);
+                                await errRes.WriteStringAsync(reader.GetString(reader.GetOrdinal("ReturnDescription")));
+                                return errRes;
+                            }
+
+                            var result = new Dictionary<string, object>
+                            {
+                                { "currentStatusId", reader.GetInt32(reader.GetOrdinal("CurrentStatusID")) },
+                                { "canUndoCurrent", reader.GetBoolean(reader.GetOrdinal("CanUndoCurrent")) }
+                            };
+
+                            if (await reader.NextResultAsync() && await reader.ReadAsync()) // Skip ResultName
+                            { }
+                            
+                            if (await reader.NextResultAsync())
+                            {
+                                var availableStatuses = new List<object>();
+                                while (await reader.ReadAsync())
+                                {
+                                    availableStatuses.Add(new
+                                    {
+                                        statusId = reader.GetInt32(reader.GetOrdinal("StatusID")),
+                                        statusName = reader.GetString(reader.GetOrdinal("StatusName"))
+                                    });
+                                }
+                                result["availableNextStatuses"] = availableStatuses;
+                            }
+
+                            await response.WriteAsJsonAsync(result);
+                            return response;
+                        }
+                    }
+                }
+            }
+            return req.CreateResponse(HttpStatusCode.InternalServerError);
+        }
+
+        [Function("UpdateEventRoundStatus")]
+        public async Task<HttpResponseData> UpdateEventRoundStatus([HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "pta/rounds/{roundId}/status")] HttpRequestData req, int roundId)
+        {
+            int? userId = JwtValidator.ValidateTokenAndGetUserId(req, _jwtSecret);
+            if (userId == null) return req.CreateResponse(HttpStatusCode.Unauthorized);
+
+            string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
+            dynamic? data = JsonConvert.DeserializeObject(requestBody);
+            if (data == null || data!.newStatusId == null) return req.CreateResponse(HttpStatusCode.BadRequest);
+
+            using (var conn = new SqlConnection(_sqlConnectionString))
+            {
+                await conn.OpenAsync();
+                using (var cmd = new SqlCommand("[PTA].[spUpdateEventRoundStatus]", conn))
+                {
+                    cmd.CommandType = CommandType.StoredProcedure;
+                    cmd.Parameters.AddWithValue("@EventRoundID", roundId);
+                    cmd.Parameters.AddWithValue("@NewStatusID", (int)data!.newStatusId);
+                    cmd.Parameters.AddWithValue("@UserID", userId.Value);
+
+                    var result = await cmd.ExecuteScalarAsync();
+                    if (result != null && (int)result == 1)
+                    {
+                        return req.CreateResponse(HttpStatusCode.OK);
+                    }
+                }
+            }
+            return req.CreateResponse(HttpStatusCode.BadRequest);
+        }
+
+        [Function("RollbackEventRoundStatus")]
+        public async Task<HttpResponseData> RollbackEventRoundStatus([HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "pta/rounds/{roundId}/status/rollback")] HttpRequestData req, int roundId)
+        {
+            int? userId = JwtValidator.ValidateTokenAndGetUserId(req, _jwtSecret);
+            if (userId == null) return req.CreateResponse(HttpStatusCode.Unauthorized);
+
+            using (var conn = new SqlConnection(_sqlConnectionString))
+            {
+                await conn.OpenAsync();
+                using (var cmd = new SqlCommand("[PTA].[spRollbackEventRoundStatus]", conn))
+                {
+                    cmd.CommandType = CommandType.StoredProcedure;
+                    cmd.Parameters.AddWithValue("@EventRoundID", roundId);
+                    cmd.Parameters.AddWithValue("@UserID", userId.Value);
+
+                    var result = await cmd.ExecuteScalarAsync();
+                    if (result != null && (int)result == 1)
+                    {
+                        return req.CreateResponse(HttpStatusCode.OK);
+                    }
+                }
+            }
+            return req.CreateResponse(HttpStatusCode.BadRequest);
+        }
     }
 }
-
-
-
-

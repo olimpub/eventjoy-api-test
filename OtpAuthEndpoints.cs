@@ -156,17 +156,20 @@ namespace EventJoy.Api
 
                     // JWT Generálás
                     int userId = TryGetInt(result2, "UserID") ?? 0;
+                    bool isSysadmin = (TryGetInt(result2, "IsSysadmin") ?? 0) == 1;
                     string email = result2.ContainsKey("EmailAddress") && result2["EmailAddress"] != null ? result2["EmailAddress"]!.ToString()! : "";
                     
                     var tokenHandler = new JwtSecurityTokenHandler();
                     var key = Encoding.ASCII.GetBytes(_jwtSecret);
+                    var claims = new List<Claim>
+                    {
+                        new Claim(ClaimTypes.NameIdentifier, userId.ToString()),
+                        new Claim(ClaimTypes.Email, email ?? "")
+                    };
+                    if (isSysadmin) claims.Add(new Claim("sysadmin", "true"));
                     var tokenDescriptor = new SecurityTokenDescriptor
                     {
-                        Subject = new ClaimsIdentity(new[]
-                        {
-                            new Claim(ClaimTypes.NameIdentifier, userId.ToString()),
-                            new Claim(ClaimTypes.Email, email)
-                        }),
+                        Subject = new ClaimsIdentity(claims),
                         Expires = DateTime.UtcNow.AddDays(30), 
                         SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature)
                     };
@@ -270,16 +273,19 @@ namespace EventJoy.Api
 
                     // JWT Generálás (automatikus beléptetés regisztráció után)
                     int userId = TryGetInt(result2, "UserID") ?? 0;
+                    bool isSysadmin = (TryGetInt(result2, "IsSysadmin") ?? 0) == 1;
                     
                     var tokenHandler = new JwtSecurityTokenHandler();
                     var key = Encoding.ASCII.GetBytes(_jwtSecret);
+                    var claims = new List<Claim>
+                    {
+                        new Claim(ClaimTypes.NameIdentifier, userId.ToString()),
+                        new Claim(ClaimTypes.Email, email ?? "")
+                    };
+                    if (isSysadmin) claims.Add(new Claim("sysadmin", "true"));
                     var tokenDescriptor = new SecurityTokenDescriptor
                     {
-                        Subject = new ClaimsIdentity(new[]
-                        {
-                            new Claim(ClaimTypes.NameIdentifier, userId.ToString()),
-                            new Claim(ClaimTypes.Email, email ?? "")
-                        }),
+                        Subject = new ClaimsIdentity(claims),
                         Expires = DateTime.UtcNow.AddDays(30), 
                         SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature)
                     };
@@ -518,7 +524,8 @@ namespace EventJoy.Api
                                     Id = TryGetInt(result2, "UserID") ?? 0,
                                     Email = result2.TryGetValue("EmailAddress", out var email) ? email?.ToString() : null,
                                     FirstName = result2.TryGetValue("FirstName", out var firstName) ? firstName?.ToString() : null,
-                                    LastName = result2.TryGetValue("LastName", out var lastName) ? lastName?.ToString() : null
+                                    LastName = result2.TryGetValue("LastName", out var lastName) ? lastName?.ToString() : null,
+                                    IsSysadmin = (TryGetInt(result2, "IsSysadmin") ?? 0) == 1
                                 };
                             }
                         }
@@ -538,13 +545,15 @@ namespace EventJoy.Api
 
                     var tokenHandler = new JwtSecurityTokenHandler();
                     var key = Encoding.ASCII.GetBytes(_jwtSecret);
+                    var claims = new List<Claim>
+                    {
+                        new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
+                        new Claim(ClaimTypes.Email, user.Email ?? "")
+                    };
+                    if (user.IsSysadmin) claims.Add(new Claim("sysadmin", "true"));
                     var tokenDescriptor = new SecurityTokenDescriptor
                     {
-                        Subject = new ClaimsIdentity(new[]
-                        {
-                            new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
-                            new Claim(ClaimTypes.Email, user.Email ?? "")
-                        }),
+                        Subject = new ClaimsIdentity(claims),
                         Expires = DateTime.UtcNow.AddDays(30), 
                         SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature)
                     };
@@ -657,18 +666,21 @@ namespace EventJoy.Api
                 if (result2 != null)
                 {
                     int userId = TryGetInt(result2, "UserID") ?? 0;
+                    bool isSysadmin = (TryGetInt(result2, "IsSysadmin") ?? 0) == 1;
                     string email = result2.ContainsKey("EmailAddress") ? result2["EmailAddress"]?.ToString() ?? "" : "";
                     
                     // JWT Generálás
                     var tokenHandler = new JwtSecurityTokenHandler();
                     var key = Encoding.ASCII.GetBytes(_jwtSecret);
+                    var claims = new List<Claim>
+                    {
+                        new Claim(ClaimTypes.NameIdentifier, userId.ToString()),
+                        new Claim(ClaimTypes.Email, email ?? "")
+                    };
+                    if (isSysadmin) claims.Add(new Claim("sysadmin", "true"));
                     var tokenDescriptor = new SecurityTokenDescriptor
                     {
-                        Subject = new ClaimsIdentity(new[]
-                        {
-                            new Claim(ClaimTypes.NameIdentifier, userId.ToString()),
-                            new Claim(ClaimTypes.Email, email)
-                        }),
+                        Subject = new ClaimsIdentity(claims),
                         Expires = DateTime.UtcNow.AddDays(30), 
                         SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature)
                     };
@@ -951,7 +963,7 @@ namespace EventJoy.Api
     public class CheckIdentityDto { public string? IdentityValue { get; set; } }
     public class OtpRequestDto { public string? EmailAddress { get; set; } public string? PhoneNumber { get; set; } }
     public class OtpVerifyDto { public string? IdentityValue { get; set; } public string? ValidationCode { get; set; } public string? DeviceId { get; set; } public string? DeviceName { get; set; } }
-    public class UserDto { public int Id { get; set; } public string? Email { get; set; } public string? FirstName { get; set; } public string? LastName { get; set; } }
+    public class UserDto { public int Id { get; set; } public string? Email { get; set; } public string? FirstName { get; set; } public string? LastName { get; set; } public bool IsSysadmin { get; set; } }
     public class PasswordLoginDto { public string? IdentityValue { get; set; } public string? Password { get; set; } public string? DeviceId { get; set; } public string? DeviceName { get; set; } }
     public class RegisterDto { public string? IdentityValue { get; set; } public string? Password { get; set; } public string? DeviceId { get; set; } public string? DeviceName { get; set; } }
     public class PasswordLoginRequest

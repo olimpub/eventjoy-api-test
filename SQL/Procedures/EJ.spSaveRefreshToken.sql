@@ -1,4 +1,7 @@
-﻿
+﻿SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+GO
+
 
 CREATE PROCEDURE [EJ].[spSaveRefreshToken]
         @UserId INT,
@@ -57,4 +60,5 @@ CREATE PROCEDURE [EJ].[spSaveRefreshToken]
     -- Mindig visszaadja a standard API Result Setet
     SELECT @ReturnValue AS ReturnValue, @ReturnDescription AS ReturnDescription
     END
+
 

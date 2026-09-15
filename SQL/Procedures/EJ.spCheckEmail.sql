@@ -1,4 +1,7 @@
-﻿    
+﻿SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+GO
+    
     CREATE PROCEDURE [EJ].[spCheckEmail]
         @EmailAddress NVARCHAR(300)
     AS
@@ -45,4 +48,5 @@
             SELECT @ReturnValue AS ReturnValue, @ReturnDescription AS ReturnDescription
         END CATCH
     END
+
 

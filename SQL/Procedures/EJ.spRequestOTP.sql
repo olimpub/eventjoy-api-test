@@ -1,8 +1,11 @@
-﻿
+﻿SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+GO
+
 
 
     
-    CREATE PROCEDURE [EJ].[spRequestOTP]
+    ALTER PROCEDURE [EJ].[spRequestOTP]
         @EmailAddress NVARCHAR(300) = NULL,
         @PhoneNumber NVARCHAR(50) = NULL
     AS
@@ -18,28 +21,28 @@
             @EmailOutboxID INT,
             @SMSOutboxID INT
     
-        -- Biztonsági ellenőrzés: ha egyiket sem adták meg
+        -- BiztonsĂˇgi ellenĹ‘rzĂ©s: ha egyiket sem adtĂˇk meg
         IF (@EmailAddress IS NULL AND @PhoneNumber IS NULL)
         BEGIN
-            SELECT -1 AS ReturnValue, N'Hiányzó Email és Telefonszám!' AS ReturnDescription
+            SELECT -1 AS ReturnValue, N'HiĂˇnyzĂł Email Ă©s TelefonszĂˇm!' AS ReturnDescription
             RETURN;
         END
     
         BEGIN TRY
-            -- 1. Generálunk egy 6-jegyű kódot (100000 - 999999 között)
+            -- 1. GenerĂˇlunk egy 6-jegyĹ± kĂłdot (100000 - 999999 kĂ¶zĂ¶tt)
             SET @GeneratedCode = CAST(ABS(CHECKSUM(NEWID())) % 900000 + 100000 AS NVARCHAR(10))
             
-            -- 2. Érvényességi idő beállítása (5 perc múlva lejár)
+            -- 2. Ă‰rvĂ©nyessĂ©gi idĹ‘ beĂˇllĂ­tĂˇsa (5 perc mĂşlva lejĂˇr)
             SET @ValidUntil = DATEADD(minute, 5, SYSDATETIMEOFFSET())
     
-            -- 3. Ellenőrizzük, létezik-e már a felhasználó
+            -- 3. EllenĹ‘rizzĂĽk, lĂ©tezik-e mĂˇr a felhasznĂˇlĂł
             SELECT TOP 1 @UserID = id FROM [EJ].[tblUser] 
             WHERE (EmailAddress = @EmailAddress AND @EmailAddress IS NOT NULL)
                OR (PhoneNumber = @PhoneNumber AND @PhoneNumber IS NOT NULL)
 
             IF (@UserID IS NULL)
             BEGIN
-                -- Ha nem található felhasználó, ellenőrizzük a tblUserLoginIdentifier táblát
+                -- Ha nem talĂˇlhatĂł felhasznĂˇlĂł, ellenĹ‘rizzĂĽk a tblUserLoginIdentifier tĂˇblĂˇt
                 SELECT TOP 1 @UserID = le.UserID 
                 FROM [EJ].[tblUserLoginIdentifier] le 
                 WHERE le.IdentifierValueNormalized = @EmailAddress OR le.IdentifierValueNormalized = @PhoneNumber;
@@ -47,25 +50,27 @@
     
             IF (@UserID IS NOT NULL)
             BEGIN
-                -- Létező felhasználó -> Frissítjük a kódját a táblában
+                -- LĂ©tezĹ‘ felhasznĂˇlĂł -> FrissĂ­tjĂĽk a kĂłdjĂˇt a tĂˇblĂˇban
                 UPDATE [EJ].[tblUser]
                 SET ValidationCode = @GeneratedCode,
                     ValidationCodeExpiry = @ValidUntil,
+                    LastUpdatedUserID = @UserID,
                     updatedAt = SYSDATETIMEOFFSET()
                 WHERE id = @UserID;
             END
             ELSE
             BEGIN
-                -- Új felhasználó -> Regisztráljuk 'Függőben' (1) státusszal, kód mentésével
+                -- Ăšj felhasznĂˇlĂł -> RegisztrĂˇljuk 'FĂĽggĹ‘ben' (1) stĂˇtusszal, kĂłd mentĂ©sĂ©vel
                 INSERT INTO [EJ].[tblUser] (EmailAddress, PhoneNumber, StatusID, ValidationCode, ValidationCodeExpiry)
                 VALUES (@EmailAddress, @PhoneNumber, 1, @GeneratedCode, @ValidUntil)
     
-                -- Lekérjük az újonnan beszúrt ID-t
+                -- LekĂ©rjĂĽk az Ăşjonnan beszĂşrt ID-t
                 SET @UserID = SCOPE_IDENTITY()
+                UPDATE [EJ].[tblUser] SET LastUpdatedUserID = @UserID WHERE id = @UserID;
             END
 
-            --Email küldés vagy SMS küldés logikája itt történhetne, de a MailerSend API hívás a C# backendben történik majd, ezért itt csak az adatokat adjuk vissza.
-            IF(@EmailAddress IS NOT NULL) --tehát email küldés esetén
+            --Email kĂĽldĂ©s vagy SMS kĂĽldĂ©s logikĂˇja itt tĂ¶rtĂ©nhetne, de a MailerSend API hĂ­vĂˇs a C# backendben tĂ¶rtĂ©nik majd, ezĂ©rt itt csak az adatokat adjuk vissza.
+            IF(@EmailAddress IS NOT NULL) --tehĂˇt email kĂĽldĂ©s esetĂ©n
             BEGIN
                 
                 DECLARE @BatchID UNIQUEIDENTIFIER = NEWID()
@@ -112,7 +117,7 @@
             ELSE
             BEGIN
 
-                 -- SMS küldés logikája itt történhetne, de a tényleges SMS küldés a C# backendben történik majd, ezért itt csak az adatokat adjuk vissza.
+                 -- SMS kĂĽldĂ©s logikĂˇja itt tĂ¶rtĂ©nhetne, de a tĂ©nyleges SMS kĂĽldĂ©s a C# backendben tĂ¶rtĂ©nik majd, ezĂ©rt itt csak az adatokat adjuk vissza.
                  INSERT INTO [EJ].[tblSMSOutbox]
                            ([SenderType]
                            ,[SenderName]
@@ -129,7 +134,7 @@
                            ,@UserID--<RefID, int,>
                            ,@UserID--<UserID, int,>
                            ,[EJ].[fnCleanPhoneNumber](@PhoneNumber) --<PhoneNo, varchar(30),>
-                           ,N'EventJoy belépési kód:' +@GeneratedCode   --<Message, nvarchar(500),>
+                           ,N'EventJoy belĂ©pĂ©si kĂłd:' +@GeneratedCode   --<Message, nvarchar(500),>
                            ,GETDATE()--<createdAt, datetimeoffset(7),>
                            ,0--<StatusID, smallint,>
 
@@ -142,11 +147,11 @@
             SET @ReturnValue = 1
             SET @ReturnDescription = 'Success'
     
-            -- RESULT SET 1 (Alap visszatérési értékek a C#-nak)
+            -- RESULT SET 1 (Alap visszatĂ©rĂ©si Ă©rtĂ©kek a C#-nak)
             SELECT @ReturnValue AS ReturnValue, @ReturnDescription AS ReturnDescription, @BatchID AS MailID, @SMSOutboxID AS SMSID
             
             -- RESULT SET 2 (Csak ha sikeres volt!)
-            -- Ezt az adathalmazt használja majd fel a C# arra, hogy kiküldje a MailerSend API-val az emailt!
+            -- Ezt az adathalmazt hasznĂˇlja majd fel a C# arra, hogy kikĂĽldje a MailerSend API-val az emailt!
             IF (@ReturnValue = 1)
             BEGIN
                 SELECT 
@@ -161,4 +166,5 @@
             SELECT @ReturnValue AS ReturnValue, @ReturnDescription AS ReturnDescription
         END CATCH
     END
+
 

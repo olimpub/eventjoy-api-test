@@ -1,4 +1,7 @@
-﻿CREATE   PROCEDURE [EJ].[spUpdateSMSOutboxProviderStatus]
+﻿SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+GO
+CREATE   PROCEDURE [EJ].[spUpdateSMSOutboxProviderStatus]
     @ProviderID VARCHAR(50),
     @ProviderStatusID SMALLINT, -- 1 Delivered, 2 Buffered, 3 Failed
     @DeliveredAt DATETIMEOFFSET(7) = NULL,
@@ -36,4 +39,5 @@
             SELECT @ReturnValue AS ReturnValue, @ReturnDescription AS ReturnDescription;
         END CATCH
     END
+
 

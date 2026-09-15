@@ -1,4 +1,7 @@
-﻿
+﻿SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+GO
+
 --Amikor megjön a válasz, hogy a BulkGate felküldése sikeres volt, akkor a státuszt 2-re állítjuk, és a providerID-t is beírjuk.
 CREATE   PROCEDURE [EJ].[spUpdateSMSOutboxStatus]
     @ID INT,
@@ -37,4 +40,5 @@ BEGIN
             SELECT @ReturnValue AS ReturnValue, @ReturnDescription AS ReturnDescription;
         END CATCH
     END
+
 
