@@ -6,7 +6,8 @@ on:
       - test
 
 env:
-  AZURE_FUNCTIONAPP_NAME: 'eventjoy-test-api' # CSERELD KI A PONTOS NEVRE!
+  AZURE_FUNCTIONAPP_NAME: 'eventjoy-test-api'
+  AZURE_RESOURCE_GROUP: 'AZ_EROFORRAS_CSOPORT_NEVED' # CSERELD KI A RESOURCE GROUP NEVRE!
   AZURE_FUNCTIONAPP_PACKAGE_PATH: '.'         
   DOTNET_VERSION: '8.0.x'                     
 
@@ -31,13 +32,19 @@ jobs:
           dotnet publish --configuration Release --output ./output
           popd
 
-      - name: 'Run Azure Functions Action'
-        uses: Azure/webapps-deploy@v3
-        id: fa
+      - name: 'Zip the output'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path ./output/* -DestinationPath ./publish.zip
+
+      - name: 'Login to Azure'
+        uses: azure/login@v2
         with:
-          app-name: ${{ env.AZURE_FUNCTIONAPP_NAME }}
-          package: '${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}/output'
-          publish-profile: ${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE_TEST }}
-          
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-
+      - name: 'Deploy to Azure Functions via CLI'
+        uses: azure/cli@v2
+        with:
+          azcliversion: latest
+          inlineScript: |
+            az functionapp deployment source config-zip -g ${{ env.AZURE_RESOURCE_GROUP }} -n ${{ env.AZURE_FUNCTIONAPP_NAME }} --src ./publish.zip
