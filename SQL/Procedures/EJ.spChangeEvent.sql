@@ -466,8 +466,7 @@ BEGIN
             -- 3. Hívó ellenőrzése (GM vagy Szervező)
             DECLARE @IsOrganizer BIT = (SELECT CASE WHEN EXISTS (
                 SELECT 1 FROM [EJ].[tblEventUser] eu 
-                INNER JOIN [EJ].[tblEventRoleTicket] ert ON eu.EventTicketID = ert.EventTicketID 
-                INNER JOIN [EJ].[tblEventRole] er ON ert.EventRoleID = er.id 
+                INNER JOIN [EJ].[tblEventRole] er ON eu.EventRoleID = er.id 
                 INNER JOIN [EJ].[tblRole] r ON er.RoleID = r.id
                 WHERE eu.UserID = @UserID AND eu.EventID = @EventID AND (r.RoleName = N'Organizer' OR r.Code = N'organizer')
             ) THEN 1 ELSE 0 END);
@@ -718,5 +717,6 @@ BEGIN
         SELECT -1 AS ReturnValue, ERROR_MESSAGE() AS ReturnDescription, NULL AS EventID, NULL AS Action;
     END CATCH
 END
+
 
 
