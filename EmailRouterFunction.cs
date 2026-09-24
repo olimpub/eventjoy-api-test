@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
@@ -17,7 +17,7 @@ namespace EventJoy.Api
         private readonly string _connectionString;
         private readonly HttpClient _httpClient;
         
-        // CserĂ©ld ki a sajĂˇt MailerSend tokenedre (vagy tedd local.settings.json-be)
+        // Cseréld ki a saját MailerSend tokenedre (vagy tedd local.settings.json-be)
         private readonly string _mailerSendToken = Environment.GetEnvironmentVariable("MailerSendToken") ?? "API_TOKEN_HERE";
 
         public EmailRouterFunction(ILoggerFactory loggerFactory, IHttpClientFactory httpClientFactory)
@@ -28,53 +28,29 @@ namespace EventJoy.Api
             _httpClient = httpClientFactory.CreateClient();
         }
 
-        [Function("EmailRouterFunction")]
-        public async Task Run(
-            [ServiceBusTrigger("communication", "email", Connection = "ServiceBusConnection")] string mySbMsg)
+        [Function("EmailBatchSenderTimer")]
+        public async Task Run([TimerTrigger("*/10 * * * * *")] TimerInfo myTimer)
         {
-            _logger.LogInformation($"C# ServiceBus trigger processing message: {mySbMsg}");
-
             try
             {
-                var payload = JsonSerializer.Deserialize<OutboxMessagePayload>(mySbMsg, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                
-                if (payload == null || payload.MailId == Guid.Empty)
-                {
-                    _logger.LogWarning("Invalid payload. Missing MailID (UID).");
-                    return;
-                }
-
-                var mailId = payload.MailId;
-                
                 var headers = new List<EmailHeaderDto>();
                 var parameters = new List<EmailParamDto>();
 
                 using (var conn = new SqlConnection(_connectionString))
                 {
                     await conn.OpenAsync();
-                    using (var cmd = new SqlCommand("[EJ].[spGetEmailData]", conn))
+                    using (var cmd = new SqlCommand("[EJ].[spGetPendingEmailsBulk]", conn))
                     {
                         cmd.CommandType = System.Data.CommandType.StoredProcedure;
-                        cmd.Parameters.AddWithValue("@UID", mailId);
 
                         using (var reader = await cmd.ExecuteReaderAsync())
                         {
-                            // RS1: ReturnStatus
-                            if (await reader.ReadAsync())
-                            {
-                                int returnValue = reader.IsDBNull(0) ? 0 : reader.GetInt32(0);
-                                if (returnValue != 1)
-                                {
-                                    _logger.LogWarning($"spGetEmailData returned error for UID {mailId}.");
-                                    return;
-                                }
-                            }
+                            if (!await reader.ReadAsync()) return;
+                            int retVal = reader.GetInt32(reader.GetOrdinal("ReturnValue"));
+                            if (retVal != 1) return; // Nincs kiküldendő e-mail
 
-                            // RS2: ResultList
-                            if (!await reader.NextResultAsync()) return;
-                            
-                            // SkipeljĂĽk a ResultList sorait, nem lĂ©tfontossĂˇgĂş a C# feldolgozĂˇshoz
-                            while (await reader.ReadAsync()) { }
+                            // RS2: ResultList (Kihagyjuk)
+                            await reader.NextResultAsync();
 
                             // RS3: EmailHeaders
                             if (await reader.NextResultAsync())
@@ -115,7 +91,6 @@ namespace EventJoy.Api
 
                 if (!headers.Any())
                 {
-                    _logger.LogInformation($"No emails found for batch UID {mailId}");
                     return;
                 }
 
@@ -128,13 +103,15 @@ namespace EventJoy.Api
                     
                     if (!string.IsNullOrEmpty(bulkEmailId))
                     {
+                        var emailIdsJson = JsonSerializer.Serialize(chunkHeaders.Select(h => h.EmailID).ToList());
+
                         using (var conn = new SqlConnection(_connectionString))
                         {
                             await conn.OpenAsync();
-                            using (var updateCmd = new SqlCommand("[EJ].[spUpdateEmailOutboxStatus]", conn))
+                            using (var updateCmd = new SqlCommand("[EJ].[spUpdateEmailOutboxStatusBulk]", conn))
                             {
                                 updateCmd.CommandType = System.Data.CommandType.StoredProcedure;
-                                updateCmd.Parameters.AddWithValue("@UID", mailId);
+                                updateCmd.Parameters.AddWithValue("@EmailIDsJSON", emailIdsJson);
                                 updateCmd.Parameters.AddWithValue("@MailerSendID", bulkEmailId);
                                 updateCmd.Parameters.AddWithValue("@StatusID", 2); // 2 = Sent To MailerSend
                                 await updateCmd.ExecuteNonQueryAsync();
@@ -142,30 +119,26 @@ namespace EventJoy.Api
                         }
                     }
 
-                    // OpcionĂˇlis delay a 15 request / minute limit miatt, ha tĂ¶bb ezer email van
                     if (headers.Count > chunkSize && (i + chunkSize) < headers.Count)
                     {
-                        await Task.Delay(4000); // 4 mĂˇsodperc kĂ©sleltetĂ©s chunkok kĂ¶zĂ¶tt
+                        await Task.Delay(4000); // 4 másodperc késleltetés chunkok között
                     }
                 }
 
-                _logger.LogInformation($"Successfully processed MailID {mailId}. Total emails sent: {headers.Count}.");
+                _logger.LogInformation($"Successfully processed {headers.Count} emails in bulk timer.");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error processing Email Service Bus message.");
-                throw; // ĂšjraprĂłbĂˇlkozĂˇs a Service Bus Ăˇltal
+                _logger.LogError(ex, "Error processing Email Batch Timer.");
             }
         }
 
         private async Task<string?> SendBulkToMailerSendAsync(List<EmailHeaderDto> headers, List<EmailParamDto> parameters)
         {
-            // A MailerSend /v1/bulk-email vĂ©gpontja egy tĂ¶mbĂ¶t vĂˇr, amiben kĂĽlĂ¶n ĂĽzenet objektumok vannak
             var bulkPayload = new List<object>();
 
             foreach (var header in headers)
             {
-                // KikeressĂĽk az ehhez az EmailID-hoz tartozĂł paramĂ©tereket
                 var emailParams = parameters.Where(p => p.EmailID == header.EmailID).ToList();
                 var variablesDictionary = new Dictionary<string, string>();
                 foreach (var p in emailParams)
@@ -203,7 +176,7 @@ namespace EventJoy.Api
                 bulkPayload.Add(emailObject);
             }
 
-            var jsonContent = new StringContent(JsonSerializer.Serialize(bulkPayload), Encoding.UTF8, "application/json");
+            var jsonContent = new StringContent(JsonSerializer.Serialize(bulkPayload, new JsonSerializerOptions { DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull }), Encoding.UTF8, "application/json");
 
             _httpClient.DefaultRequestHeaders.Clear();
             _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {_mailerSendToken}");
@@ -214,7 +187,7 @@ namespace EventJoy.Api
             {
                 var errorBody = await response.Content.ReadAsStringAsync();
                 _logger.LogError($"MailerSend Bulk API error: {response.StatusCode} - {errorBody}");
-                throw new Exception($"MailerSend error: {response.StatusCode}");
+                throw new Exception($"MailerSend error: {response.StatusCode} - {errorBody}");
             }
 
             var successBody = await response.Content.ReadAsStringAsync();
@@ -260,5 +233,3 @@ namespace EventJoy.Api
         public string? ParamValue { get; set; }
     }
 }
-
-

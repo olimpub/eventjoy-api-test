@@ -105,7 +105,7 @@ namespace EventJoy.Api
 
             try
             {
-                var metrics = new Dictionary<string, object>();
+                var metrics = new Dictionary<string, object?>();
                 using (var conn = new SqlConnection(_connectionString))
                 {
                     await conn.OpenAsync();
@@ -149,7 +149,7 @@ namespace EventJoy.Api
 
             try
             {
-                var users = new List<Dictionary<string, object>>();
+                var users = new List<Dictionary<string, object?>>();
                 int totalCount = 0;
 
                 using (var conn = new SqlConnection(_connectionString))
@@ -166,7 +166,7 @@ namespace EventJoy.Api
                         {
                             while (await reader.ReadAsync())
                             {
-                                var user = new Dictionary<string, object>();
+                                var user = new Dictionary<string, object?>();
                                 for (int i = 0; i < reader.FieldCount; i++) user[reader.GetName(i)] = reader.IsDBNull(i) ? null : reader.GetValue(i);
                                 users.Add(user);
                             }
@@ -299,7 +299,7 @@ namespace EventJoy.Api
 
             try
             {
-                var logs = new List<Dictionary<string, object>>();
+                var logs = new List<Dictionary<string, object?>>();
                 int totalCount = 0;
 
                 using (var conn = new SqlConnection(_connectionString))
@@ -320,7 +320,7 @@ namespace EventJoy.Api
                         {
                             while (await reader.ReadAsync())
                             {
-                                var log = new Dictionary<string, object>();
+                                var log = new Dictionary<string, object?>();
                                 for (int i = 0; i < reader.FieldCount; i++) log[reader.GetName(i)] = reader.IsDBNull(i) ? null : reader.GetValue(i);
                                 logs.Add(log);
                             }
@@ -365,7 +365,7 @@ namespace EventJoy.Api
 
             try
             {
-                var logs = new List<Dictionary<string, object>>();
+                var logs = new List<Dictionary<string, object?>>();
                 int totalCount = 0;
 
                 using (var conn = new SqlConnection(_connectionString))
@@ -385,7 +385,7 @@ namespace EventJoy.Api
                         {
                             while (await reader.ReadAsync())
                             {
-                                var log = new Dictionary<string, object>();
+                                var log = new Dictionary<string, object?>();
                                 for (int i = 0; i < reader.FieldCount; i++) log[reader.GetName(i)] = reader.IsDBNull(i) ? null : reader.GetValue(i);
                                 logs.Add(log);
                             }
@@ -418,7 +418,7 @@ namespace EventJoy.Api
 
             try
             {
-                var tickets = new List<Dictionary<string, object>>();
+                var tickets = new List<Dictionary<string, object?>>();
                 int totalCount = 0;
 
                 using (var conn = new SqlConnection(_connectionString))
@@ -435,7 +435,7 @@ namespace EventJoy.Api
                         {
                             while (await reader.ReadAsync())
                             {
-                                var ticket = new Dictionary<string, object>();
+                                var ticket = new Dictionary<string, object?>();
                                 for (int i = 0; i < reader.FieldCount; i++) ticket[reader.GetName(i)] = reader.IsDBNull(i) ? null : reader.GetValue(i);
                                 tickets.Add(ticket);
                             }
@@ -516,8 +516,8 @@ namespace EventJoy.Api
 
             try
             {
-                var tables = new List<Dictionary<string, object>>();
-                var fields = new List<Dictionary<string, object>>();
+                var tables = new List<Dictionary<string, object?>>();
+                var fields = new List<Dictionary<string, object?>>();
 
                 using (var conn = new SqlConnection(_connectionString))
                 {
@@ -529,7 +529,7 @@ namespace EventJoy.Api
                         {
                             while (await reader.ReadAsync())
                             {
-                                var row = new Dictionary<string, object>();
+                                var row = new Dictionary<string, object?>();
                                 for (int i = 0; i < reader.FieldCount; i++) row[reader.GetName(i)] = reader.IsDBNull(i) ? null : reader.GetValue(i);
                                 tables.Add(row);
                             }
@@ -537,7 +537,7 @@ namespace EventJoy.Api
                             {
                                 while (await reader.ReadAsync())
                                 {
-                                    var row = new Dictionary<string, object>();
+                                    var row = new Dictionary<string, object?>();
                                     for (int i = 0; i < reader.FieldCount; i++) row[reader.GetName(i)] = reader.IsDBNull(i) ? null : reader.GetValue(i);
                                     fields.Add(row);
                                 }
@@ -566,8 +566,8 @@ namespace EventJoy.Api
 
             try
             {
-                var ticket = new Dictionary<string, object>();
-                var comments = new List<Dictionary<string, object>>();
+                var ticket = new Dictionary<string, object?>();
+                var comments = new List<Dictionary<string, object?>>();
 
                 using (var conn = new SqlConnection(_connectionString))
                 {
@@ -587,7 +587,7 @@ namespace EventJoy.Api
                             {
                                 while (await reader.ReadAsync())
                                 {
-                                    var comment = new Dictionary<string, object>();
+                                    var comment = new Dictionary<string, object?>();
                                     for (int i = 0; i < reader.FieldCount; i++) comment[reader.GetName(i)] = reader.IsDBNull(i) ? null : reader.GetValue(i);
                                     comments.Add(comment);
                                 }
@@ -668,8 +668,8 @@ namespace EventJoy.Api
 
             try
             {
-                var statuses = new List<Dictionary<string, object>>();
-                var flows = new List<Dictionary<string, object>>();
+                var statuses = new List<Dictionary<string, object?>>();
+                var flows = new List<Dictionary<string, object?>>();
 
                 using (var conn = new SqlConnection(_connectionString))
                 {
@@ -681,7 +681,7 @@ namespace EventJoy.Api
                         {
                             while (await reader.ReadAsync())
                             {
-                                var row = new Dictionary<string, object>();
+                                var row = new Dictionary<string, object?>();
                                 for (int i = 0; i < reader.FieldCount; i++) row[reader.GetName(i)] = reader.IsDBNull(i) ? null : reader.GetValue(i);
                                 statuses.Add(row);
                             }
@@ -689,7 +689,7 @@ namespace EventJoy.Api
                             {
                                 while (await reader.ReadAsync())
                                 {
-                                    var row = new Dictionary<string, object>();
+                                    var row = new Dictionary<string, object?>();
                                     for (int i = 0; i < reader.FieldCount; i++) row[reader.GetName(i)] = reader.IsDBNull(i) ? null : reader.GetValue(i);
                                     flows.Add(row);
                                 }

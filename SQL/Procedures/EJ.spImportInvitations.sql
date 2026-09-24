@@ -1,4 +1,4 @@
-﻿SET QUOTED_IDENTIFIER ON;
+SET QUOTED_IDENTIFIER ON;
 SET ANSI_NULLS ON;
 GO
 CREATE OR ALTER PROCEDURE [EJ].[spImportInvitations]
@@ -20,7 +20,7 @@ BEGIN
         DECLARE @EventName NVARCHAR(200);
         SELECT @EventName = Title FROM [EJ].[tblEvent] WHERE id = @EventID;
 
-        -- 1. Temp tĂˇbla lĂ©trehozĂˇsa
+        -- 1. Temp tábla létrehozása
         CREATE TABLE #Invitations (
             RowID INT IDENTITY(1,1),
             FirstName NVARCHAR(150),
@@ -46,16 +46,16 @@ BEGIN
 
         INSERT INTO #Invitations (FirstName, LastName, Email, Phone, RoleName, TicketName, OrganizationName, TeamName, RegionName, CompanyName)
         SELECT 
-            NULLIF(TRIM(JSON_VALUE(value, '$."KeresztnĂ©v"')), ''),
-            NULLIF(TRIM(JSON_VALUE(value, '$."VezetĂ©knĂ©v"')), ''),
-            NULLIF(TRIM(LOWER(JSON_VALUE(value, '$."Email-cĂ­m"'))), ''),
-            NULLIF(TRIM(JSON_VALUE(value, '$."TelefonszĂˇm"')), ''),
-            NULLIF(TRIM(JSON_VALUE(value, '$."SzerepkĂ¶r"')), ''),
+            NULLIF(TRIM(JSON_VALUE(value, '$."Keresztnév"')), ''),
+            NULLIF(TRIM(JSON_VALUE(value, '$."Vezetéknév"')), ''),
+            NULLIF(TRIM(LOWER(JSON_VALUE(value, '$."Email-cím"'))), ''),
+            NULLIF(TRIM(JSON_VALUE(value, '$."Telefonszám"')), ''),
+            NULLIF(TRIM(JSON_VALUE(value, '$."Szerepkör"')), ''),
             NULLIF(TRIM(JSON_VALUE(value, '$."Jegy"')), ''),
             COALESCE(NULLIF(TRIM(JSON_VALUE(value, '$."OrganizationName"')), ''), NULLIF(TRIM(JSON_VALUE(value, '$."Szervezet"')), '')),
             COALESCE(NULLIF(TRIM(JSON_VALUE(value, '$."TeamName"')), ''), NULLIF(TRIM(JSON_VALUE(value, '$."Csapat"')), '')),
-            COALESCE(NULLIF(TRIM(JSON_VALUE(value, '$."RegionName"')), ''), NULLIF(TRIM(JSON_VALUE(value, '$."RĂ©giĂł"')), '')),
-            COALESCE(NULLIF(TRIM(JSON_VALUE(value, '$."CompanyName"')), ''), NULLIF(TRIM(JSON_VALUE(value, '$."CĂ©g"')), ''))
+            COALESCE(NULLIF(TRIM(JSON_VALUE(value, '$."RegionName"')), ''), NULLIF(TRIM(JSON_VALUE(value, '$."Régió"')), '')),
+            COALESCE(NULLIF(TRIM(JSON_VALUE(value, '$."CompanyName"')), ''), NULLIF(TRIM(JSON_VALUE(value, '$."Cég"')), ''))
         FROM OPENJSON(@Json, '$.Invitations');
 
         UPDATE #Invitations
@@ -63,7 +63,7 @@ BEGIN
             ValidationCode = CAST(ABS(CHECKSUM(NEWID())) % 900000 + 100000 AS NVARCHAR(10)),
             EventUserUID = NEWID();
 
-        -- 1/B. CsoportosĂ­tĂˇsi Flagek ellenĹ‘rzĂ©se
+        -- 1/B. Csoportosítási Flagek ellenőrzése
         DECLARE @OrgGrpFlg BIT = 0, @TeamGrpFlg BIT = 0, @RegionGrpFlg BIT = 0, @CompanyGrpFlg BIT = 0;
         SELECT 
             @OrgGrpFlg = ISNULL(OrganizationGrpFlg, 0),
@@ -73,34 +73,28 @@ BEGIN
         FROM [PTA].[tblEventSettings]
         WHERE EventID = @EventID;
 
-        -- Eldobjuk a kikapcsolt flageket (akkor is, ha kĂĽldtĂ©k)
+        -- Eldobjuk a kikapcsolt flageket (akkor is, ha küldték)
         IF @OrgGrpFlg = 0 UPDATE #Invitations SET OrganizationName = NULL;
         IF @TeamGrpFlg = 0 UPDATE #Invitations SET TeamName = NULL;
         IF @RegionGrpFlg = 0 UPDATE #Invitations SET RegionName = NULL;
         IF @CompanyGrpFlg = 0 UPDATE #Invitations SET CompanyName = NULL;
 
-        -- KĂ¶telezĹ‘ mezĹ‘k validĂˇlĂˇsa (csak ha a flag be van kapcsolva)
-        IF @OrgGrpFlg = 1 UPDATE #Invitations SET ResultMsg = CONCAT(ISNULL(ResultMsg + '; ', ''), N'HiĂˇnyzĂł Szervezet') WHERE OrganizationName IS NULL;
-        IF @TeamGrpFlg = 1 UPDATE #Invitations SET ResultMsg = CONCAT(ISNULL(ResultMsg + '; ', ''), N'HiĂˇnyzĂł Csapat') WHERE TeamName IS NULL;
-        IF @RegionGrpFlg = 1 UPDATE #Invitations SET ResultMsg = CONCAT(ISNULL(ResultMsg + '; ', ''), N'HiĂˇnyzĂł RĂ©giĂł') WHERE RegionName IS NULL;
-        IF @CompanyGrpFlg = 1 UPDATE #Invitations SET ResultMsg = CONCAT(ISNULL(ResultMsg + '; ', ''), N'HiĂˇnyzĂł CĂ©g') WHERE CompanyName IS NULL;
-
-        -- 2. User Matching (Email alapĂˇn)
-        -- tblUser alapjĂˇn
+        -- 2. User Matching (Email alapán)
+        -- tblUser alapján
         UPDATE i
         SET TargetUserID = u.id
         FROM #Invitations i
         JOIN [EJ].[tblUser] u ON LOWER(u.EmailAddress) = i.Email
         WHERE i.Email IS NOT NULL AND i.Email <> '' AND i.TargetUserID IS NULL;
 
-        -- tblUserLoginIdentifier alapjĂˇn
+        -- tblUserLoginIdentifier alapján
         UPDATE i
         SET TargetUserID = uid.UserID
         FROM #Invitations i
         JOIN [EJ].[tblUserLoginIdentifier] uid ON uid.IdentifierValueNormalized = i.Email AND uid.IdentifierTypeID = 1
         WHERE i.Email IS NOT NULL AND i.Email <> '' AND i.TargetUserID IS NULL;
 
-        -- HiĂˇnyzĂł Userek lĂ©trehozĂˇsa
+        -- Hiányzó Userek létrehozása
         DECLARE @NewUsers TABLE (InsertedID BIGINT, RowID INT);
         MERGE INTO [EJ].[tblUser] AS target
         USING (SELECT RowID, FirstName, LastName, Email, Phone FROM #Invitations WHERE TargetUserID IS NULL) AS source
@@ -110,20 +104,20 @@ BEGIN
             VALUES (source.FirstName, source.LastName, source.Email, source.Phone, 1, @Now, @Now)
         OUTPUT inserted.id, source.RowID INTO @NewUsers;
 
-        -- TargetUserID frissĂ­tĂ©se az ĂşjaknĂˇl
+        -- TargetUserID frissítése az újaknál
         UPDATE i
         SET TargetUserID = nu.InsertedID
         FROM #Invitations i
         JOIN @NewUsers nu ON i.RowID = nu.RowID;
 
-        -- LoginIdentifier bejegyzĂ©s az Ăşj usereknek
+        -- LoginIdentifier bejegyzés az új usereknek
         INSERT INTO [EJ].[tblUserLoginIdentifier] (UserID, IdentifierTypeID, IdentifierValueRaw, IdentifierValueNormalized, IsPrimary, IsVerified, ActiveFlg, LastUpdatedUserID, createdAt, updatedAt)
         SELECT nu.InsertedID, 1, i.Email, i.Email, 1, 0, 1, @UserID, @Now, @Now
         FROM @NewUsers nu
         JOIN #Invitations i ON nu.RowID = i.RowID
         WHERE i.Email IS NOT NULL AND i.Email <> '';
 
-        -- 3. SzerepkĂ¶r (Role) ValidĂˇlĂˇs
+        -- 3. Szerepkör (Role) Validálás
         UPDATE i
         SET 
             RoleID = r.id,
@@ -132,17 +126,23 @@ BEGIN
         JOIN [EJ].[tblRole] r ON r.RoleName = i.RoleName;
 
         UPDATE #Invitations
-        SET ResultMsg = CONCAT(ISNULL(ResultMsg + '; ', ''), N'Ismeretlen szerepkĂ¶r')
+        SET ResultMsg = CONCAT(ISNULL(ResultMsg + '; ', ''), N'Ismeretlen szerepkör')
         WHERE RoleID IS NULL;
+        -- Csoportosító mezők validálása (csak ha a flag be van kapcsolva és RoleTypeID NOT IN (1, 2))
+        IF @OrgGrpFlg = 1 UPDATE #Invitations SET ResultMsg = CONCAT(ISNULL(ResultMsg + '; ', ''), N'Hiányzó Szervezet') WHERE OrganizationName IS NULL AND ISNULL(RoleTypeID, 0) NOT IN (1, 2);
+        IF @TeamGrpFlg = 1 UPDATE #Invitations SET ResultMsg = CONCAT(ISNULL(ResultMsg + '; ', ''), N'Hiányzó Csapat') WHERE TeamName IS NULL AND ISNULL(RoleTypeID, 0) NOT IN (1, 2);
+        IF @RegionGrpFlg = 1 UPDATE #Invitations SET ResultMsg = CONCAT(ISNULL(ResultMsg + '; ', ''), N'Hiányzó Régió') WHERE RegionName IS NULL AND ISNULL(RoleTypeID, 0) NOT IN (1, 2);
+        IF @CompanyGrpFlg = 1 UPDATE #Invitations SET ResultMsg = CONCAT(ISNULL(ResultMsg + '; ', ''), N'Hiányzó Cég') WHERE CompanyName IS NULL AND ISNULL(RoleTypeID, 0) NOT IN (1, 2);
 
-        -- EventRole ellenĹ‘rzĂ©s
+
+        -- EventRole ellenőrzés
         UPDATE i
         SET EventRoleID = er.id
         FROM #Invitations i
         JOIN [EJ].[tblEventRole] er ON er.RoleID = i.RoleID AND er.EventID = @EventID
         WHERE i.RoleID IS NOT NULL;
 
-        -- HiĂˇnyzĂł EventRole-ok lĂ©trehozĂˇsa
+        -- Hiányzó EventRole-ok létrehozása
         DECLARE @NewEventRoles TABLE (InsertedID BIGINT, RoleID BIGINT);
         MERGE INTO [EJ].[tblEventRole] AS target
         USING (SELECT DISTINCT RoleID FROM #Invitations WHERE RoleID IS NOT NULL AND EventRoleID IS NULL) AS source
@@ -158,9 +158,9 @@ BEGIN
         JOIN @NewEventRoles ner ON i.RoleID = ner.RoleID
         WHERE i.EventRoleID IS NULL;
 
-        -- 4. Jegy (Ticket) EllenĹ‘rzĂ©se
+        -- 4. Jegy (Ticket) Ellenőrzése
         UPDATE #Invitations
-        SET ResultMsg = CONCAT(ISNULL(ResultMsg + '; ', ''), N'HiĂˇnyzĂł jegy adat')
+        SET ResultMsg = CONCAT(ISNULL(ResultMsg + '; ', ''), N'Hiányzó jegy adat')
         WHERE RoleTypeID <> 1 AND (TicketName IS NULL OR TicketName = '');
 
         UPDATE i
@@ -173,7 +173,7 @@ BEGIN
         SET ResultMsg = CONCAT(ISNULL(ResultMsg + '; ', ''), N'Ismeretlen jegy')
         WHERE EventTicketID IS NULL AND (TicketName IS NOT NULL AND TicketName <> '');
 
-        -- 5. Role-Ticket Ă¶sszerendelĂ©s ellenĹ‘rzĂ©se
+        -- 5. Role-Ticket összerendelés ellenőrzése
         UPDATE i
         SET EventRoleTicketID = ert.id
         FROM #Invitations i
@@ -181,13 +181,13 @@ BEGIN
         WHERE i.EventRoleID IS NOT NULL AND i.EventTicketID IS NOT NULL;
 
         UPDATE #Invitations
-        SET ResultMsg = CONCAT(ISNULL(ResultMsg + '; ', ''), N'Ismeretlen Jegy + szerepkĂ¶r!')
+        SET ResultMsg = CONCAT(ISNULL(ResultMsg + '; ', ''), N'Ismeretlen Jegy + szerepkör!')
         WHERE EventRoleTicketID IS NULL 
           AND EventRoleID IS NOT NULL 
           AND EventTicketID IS NOT NULL
           AND RoleTypeID <> 1;
 
-        -- 6. Hiba riportolĂˇs
+        -- 6. Hiba riportolás
         DECLARE @ErrorCount INT;
         SELECT @ErrorCount = COUNT(*) FROM #Invitations WHERE ResultMsg IS NOT NULL;
 
@@ -195,7 +195,7 @@ BEGIN
         BEGIN
             SELECT 
                 -1 AS ReturnValue, 
-                N'Az importĂˇlĂˇs sikertelen hibĂˇs sorok miatt.' AS ReturnDescription,
+                N'Az importálás sikertelen hibás sorok miatt.' AS ReturnDescription,
                 @EventID AS EventID,
                 NULL AS BatchID;
                 
@@ -203,9 +203,9 @@ BEGIN
             RETURN;
         END
 
-        -- 7. Sikeres MentĂ©s
+        -- 7. Sikeres Mentés
 
-        -- ValidationCode frissĂ­tĂ©se 3 napos lejĂˇrattal az Ă‰RINTETT usereknĂ©l
+        -- ValidationCode frissítése 3 napos lejárattal az ÉRINTETT usereknél
         UPDATE u
         SET 
             ValidationCode = i.ValidationCode,
@@ -214,7 +214,7 @@ BEGIN
         FROM [EJ].[tblUser] u
         JOIN #Invitations i ON u.id = i.TargetUserID;
 
-        -- MeghĂ­vĂłk rĂ¶gzĂ­tĂ©se vagy frissĂ­tĂ©se
+        -- Meghívók rögzítése vagy frissítése
         DECLARE @EventUserActions TABLE (ActionName NVARCHAR(10), RowID INT);
 
         MERGE INTO [EJ].[tblEventUser] AS target
@@ -237,7 +237,7 @@ BEGIN
             )
         OUTPUT $action, source.RowID INTO @EventUserActions(ActionName, RowID);
 
-        -- 7/B. PTA JĂˇtĂ©kosok lĂ©trehozĂˇsa vagy frissĂ­tĂ©se (csak ha van tblEventSettings Ă©s RoleTypeID = 3)
+        -- 7/B. PTA Játékosok létrehozása vagy frissítése (csak ha van tblEventSettings és RoleTypeID = 3)
         IF EXISTS (SELECT 1 FROM [PTA].[tblEventSettings] WHERE EventID = @EventID)
         BEGIN
             MERGE INTO [PTA].[tblEventPlayer] AS target
@@ -274,7 +274,7 @@ BEGIN
                 );
         END
 
-        -- 8. Outbox Email kĂĽldĂ©s (CSAK az Ăşjonnan hozzĂˇadott felhasznĂˇlĂłknak)
+        -- 8. Outbox Email küldés (CSAK az újonnan hozzáadott felhasználóknak)
         DECLARE @BatchID UNIQUEIDENTIFIER = NEWID();
         DECLARE @TemplateID INT;
         SELECT @TemplateID = id FROM [EJ].[tblEmailTemplate] WHERE MailerSendID = 'jy7zpl9rkm5l5vx6';
@@ -317,7 +317,7 @@ BEGIN
         SELECT o.EmailID, 'EntryLink', @BaseUrl + '/invite/' + CAST(i.EventUserUID AS NVARCHAR(36)), @UserID, @Now, @Now
         FROM @OutboxIDs o JOIN #Invitations i ON o.RowID = i.RowID;
 
-        -- Sikeres vĂˇlasz
+        -- Sikeres válasz
         SELECT 1 AS ReturnValue, N'OK' AS ReturnDescription, @EventID AS EventID, @BatchID AS BatchID;
         SELECT * FROM #Invitations;
 

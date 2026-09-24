@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
@@ -683,22 +683,8 @@ namespace EventJoy.Api
                             }
                             if (batchId != null)
                             {
-                                if (_serviceBusClient != null)
-                                {
-                                    await using var sender = _serviceBusClient.CreateSender("communication");
-                                    var payload = new { MailId = batchId.Value };
-                                    var sbMessage = new Azure.Messaging.ServiceBus.ServiceBusMessage(System.Text.Json.JsonSerializer.Serialize(payload))
-                                    {
-                                        MessageId = batchId.Value.ToString()
-                                    };
-                                    sbMessage.ApplicationProperties["channel"] = "email";
-                                    await sender.SendMessageAsync(sbMessage);
-                                    _logger.LogInformation($"Successfully published BatchID {batchId.Value} to ServiceBus.");
-                                }
-                                else
-                                {
-                                    _logger.LogWarning("ServiceBusConnection is missing. Could not publish BatchID messages.");
-                                }
+                                // HACK: Kikerült az E-mail ServiceBus beküldés, mert Timer kezeli.
+                                _logger.LogInformation($"BatchID {batchId.Value} created successfully (waiting for Timer pickup).");
                             }
 
                             var response = req.CreateResponse(HttpStatusCode.OK);
@@ -811,26 +797,7 @@ namespace EventJoy.Api
                             return serverErr;
                         }
 
-                        // Send Mailer ServiceBus Message
-                        if (batchId != null)
-                        {
-                            if (_serviceBusClient != null)
-                            {
-                                await using var sender = _serviceBusClient.CreateSender("communication");
-                                var payload = new { MailId = batchId.Value };
-                                var sbMessage = new Azure.Messaging.ServiceBus.ServiceBusMessage(System.Text.Json.JsonSerializer.Serialize(payload))
-                                {
-                                    MessageId = batchId.Value.ToString()
-                                };
-                                sbMessage.ApplicationProperties["channel"] = "email";
-                                await sender.SendMessageAsync(sbMessage);
-                                _logger.LogInformation($"Successfully published BatchID {batchId.Value} to ServiceBus for Walkin.");
-                            }
-                            else
-                            {
-                                _logger.LogWarning("ServiceBusConnection is missing. Could not publish Walkin BatchID message.");
-                            }
-                        }
+                        // HACK: Kikerült az E-mail ServiceBus beküldés, mert Timer kezeli.
 
                         var response = req.CreateResponse(HttpStatusCode.OK);
                         await response.WriteAsJsonAsync(new

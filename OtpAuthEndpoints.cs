@@ -413,14 +413,8 @@ namespace EventJoy.Api
                         // Handle Email
                         if (result1.TryGetValue("MailID", out var mailIdObj) && mailIdObj != null && Guid.TryParse(mailIdObj.ToString(), out Guid mailId))
                         {
-                            var payload = new { MailId = mailId };
-                            var sbMessage = new Azure.Messaging.ServiceBus.ServiceBusMessage(System.Text.Json.JsonSerializer.Serialize(payload))
-                            {
-                                MessageId = mailId.ToString()
-                            };
-                            sbMessage.ApplicationProperties["channel"] = "email";
-                            await sender.SendMessageAsync(sbMessage);
-                            _logger.LogInformation($"Successfully published MailID {mailId} to ServiceBus.");
+                            // HACK: E-mail ServiceBus küldés kikapcsolva, a Timer kötegelve szedi ki.
+                            _logger.LogInformation($"MailID {mailId} generated for Timer pickup.");
                         }
 
                         // Handle SMS

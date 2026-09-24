@@ -78,7 +78,7 @@ BEGIN
                 WHERE eu.EventID = @EventID AND eu.UserID = @UserID AND eu.ActiveFlg = 1 AND r.RoleTypeID IN (1, 2)
             )
             BEGIN
-                THROW 50403, N'Nincs jogosultsĂˇgod mĂłdosĂ­tani a kivetĂ­tĂ©st.', 1;
+                THROW 50403, N'Nincs jogosultságod módosítani a kivetítést.', 1;
             END
 
             DECLARE @DispState NVARCHAR(16) = JSON_VALUE(@Json, '$.Payload.State');
@@ -92,7 +92,7 @@ BEGIN
             BEGIN
                 IF @DispRoundId IS NULL
                 BEGIN
-                    THROW 50400, N'PublikĂˇlt fordulĂł megadĂˇsa kĂ¶telezĹ‘ a leaderboardhoz.', 1;
+                    THROW 50400, N'Publikált forduló megadása kötelező a leaderboardhoz.', 1;
                 END
                 
                 IF NOT EXISTS (
@@ -100,7 +100,7 @@ BEGIN
                     WHERE r.EventRoundID = @DispRoundId AND r.EventID = @EventID AND r.EventRoundStatusID = 5
                 )
                 BEGIN
-                    THROW 50400, N'ElĹ‘bb publikĂˇld a fordulĂłt.', 1;
+                    THROW 50400, N'Előbb publikáld a fordulót.', 1;
                 END
             END
 
@@ -136,7 +136,7 @@ BEGIN
         ELSE IF @Action = N'EventUser.PatchContact'
         BEGIN
             -- Payload.EventUserID + LastName + FirstName + Email + Phone
-            -- szervezĹ‘; tblUser globĂˇlis mĂłdosĂ­tĂˇs! (specifikĂˇciĂł megvĂˇltoztatva)
+            -- szervező; tblUser globális módosítás! (specifikáció megváltoztatva)
 
             IF NOT EXISTS (
                 SELECT 1 FROM [EJ].[tblEventUser] eu
@@ -145,7 +145,7 @@ BEGIN
                 WHERE eu.UserID = @UserID AND eu.EventID = @EventID AND r.RoleTypeID = 1 AND eu.ActiveFlg = 1
             )
             BEGIN
-                THROW 50403, N'Nincs jogosultsĂˇgod mĂłdosĂ­tani a rĂ©sztvevĹ‘ adatait.', 1;
+                THROW 50403, N'Nincs jogosultságod módosítani a résztvevő adatait.', 1;
             END
 
             DECLARE @PatchEventUserID BIGINT = JSON_VALUE(@Json, '$.Payload.EventUserID');
@@ -156,17 +156,17 @@ BEGIN
 
             IF LTRIM(RTRIM(ISNULL(@PatchLastName, ''))) = '' OR LTRIM(RTRIM(ISNULL(@PatchFirstName, ''))) = ''
             BEGIN
-                THROW 50400, N'A vezetĂ©knĂ©v Ă©s a keresztnĂ©v megadĂˇsa kĂ¶telezĹ‘.', 1;
+                THROW 50400, N'A vezetéknév és a keresztnév megadása kötelező.', 1;
             END
 
             IF LTRIM(RTRIM(ISNULL(@PatchEmail, ''))) = ''
             BEGIN
-                THROW 50400, N'Add meg az e-mail cĂ­met.', 1;
+                THROW 50400, N'Add meg az e-mail címet.', 1;
             END
 
             IF @PatchEmail NOT LIKE '%_@__%.__%'
             BEGIN
-                THROW 50400, N'Ă‰rvĂ©nytelen e-mail cĂ­m.', 1;
+                THROW 50400, N'Érvénytelen e-mail cím.', 1;
             END
 
             -- HU Phone validation
@@ -174,13 +174,13 @@ BEGIN
 
             IF @PatchPhone IS NOT NULL AND (@PatchPhone NOT LIKE '+36%' AND @PatchPhone NOT LIKE '06%' AND @PatchPhone NOT LIKE '36%')
             BEGIN
-                THROW 50400, N'Ă‰rvĂ©nytelen telefonszĂˇm.', 1;
+                THROW 50400, N'Érvénytelen telefonszám.', 1;
             END
 
             DECLARE @TargetUserIDToPatch BIGINT = (SELECT UserID FROM [EJ].[tblEventUser] WHERE id = @PatchEventUserID AND EventID = @EventID AND ActiveFlg = 1);
             IF @TargetUserIDToPatch IS NULL
             BEGIN
-                THROW 50404, N'A rĂ©sztvevĹ‘ nem talĂˇlhatĂł.', 1;
+                THROW 50404, N'A résztvevő nem található.', 1;
             END
 
             -- Check duplication ON THE SAME EVENT
@@ -191,7 +191,7 @@ BEGIN
                 AND (LOWER(u.EmailAddress) = LOWER(@PatchEmail) OR (u.PhoneNumber IS NOT NULL AND u.PhoneNumber = @PatchPhone))
             )
             BEGIN
-                THROW 50409, N'Ez a rĂ©sztvevĹ‘ mĂˇr szerepel a listĂˇn.', 1;
+                THROW 50409, N'Ez a résztvevő már szerepel a listán.', 1;
             END
             
             -- ALSO check global email duplication (because EmailAddress is unique in tblUserLoginIdentifier / tblUser)
@@ -199,7 +199,7 @@ BEGIN
                 SELECT 1 FROM [EJ].[tblUser] WHERE LOWER(EmailAddress) = LOWER(@PatchEmail) AND id <> @TargetUserIDToPatch
             )
             BEGIN
-                THROW 50409, N'Ez az e-mail cĂ­m mĂˇr egy mĂˇsik felhasznĂˇlĂłhoz tartozik a rendszerben. Nem lehet mĂłdosĂ­tani.', 1;
+                THROW 50409, N'Ez az e-mail cím már egy másik felhasználóhoz tartozik a rendszerben. Nem lehet módosítani.', 1;
             END
 
             UPDATE [EJ].[tblUser]
@@ -229,7 +229,7 @@ BEGIN
         ELSE IF @Action = N'EventUser.Apply'
         BEGIN
             DECLARE @ApplyTicketID INT = JSON_VALUE(@Json, '$.Payload.EventTicketID');
-            -- KikeressĂĽk az adott jegyhez tartozĂł RoleID-t
+            -- Kikeressük az adott jegyhez tartozó RoleID-t
             DECLARE @ApplyRoleID INT = (SELECT TOP 1 EventRoleID FROM [EJ].[tblEventRoleTicket] WHERE EventTicketID = @ApplyTicketID);
             
             INSERT INTO [EJ].[tblEventUser] (EventID, UserID, EventRoleID, EventTicketID, EventUserStatusID, ActiveFlg, LastUpdatedUserID, createdAt, updatedAt)
@@ -253,24 +253,24 @@ BEGIN
             WHERE [key] = 'Rating';
 
             IF @RatingType IS NULL
-                THROW 50000, N'Ă‰rvĂ©nytelen Ă©rtĂ©kelĂ©s: A Rating mezĹ‘ kĂ¶telezĹ‘.', 1;
+                THROW 50000, N'Érvénytelen értékelés: A Rating mező kötelező.', 1;
 
             DECLARE @Rating TINYINT = NULL;
             IF @RatingType = 2
             BEGIN
                 SET @Rating = CAST(@RatingValue AS TINYINT);
                 IF @Rating < 1 OR @Rating > 5
-                    THROW 50000, N'Ă‰rvĂ©nytelen Ă©rtĂ©kelĂ©s (1-5 kĂ¶zĂ¶tt kell lennie).', 1;
+                    THROW 50000, N'Érvénytelen értékelés (1-5 között kell lennie).', 1;
             END
             ELSE IF @RatingType <> 0
             BEGIN
-                THROW 50000, N'Ă‰rvĂ©nytelen Ă©rtĂ©kelĂ©s: SzĂˇm vagy null elvĂˇrt.', 1;
+                THROW 50000, N'Érvénytelen értékelés: Szám vagy null elvárt.', 1;
             END
 
             IF @RatingType = 2 AND LEN(@RatingComment) > 2000
-                THROW 50000, N'Az Ă©rtĂ©kelĂ©s szĂ¶vege tĂşl hosszĂş.', 1;
+                THROW 50000, N'Az értékelés szövege túl hosszú.', 1;
 
-            -- 2. RĂ©sztvevĹ‘ ellenĹ‘rzĂ©se
+            -- 2. Résztvevő ellenőrzése
             DECLARE @TargetRoleType INT, @TargetEU_UserID BIGINT, @TargetActive BIT;
             SELECT @TargetRoleType = r.RoleTypeID, @TargetEU_UserID = eu.UserID, @TargetActive = eu.ActiveFlg
             FROM [EJ].[tblEventUser] eu
@@ -279,25 +279,25 @@ BEGIN
             WHERE eu.id = @RatingEventUserID AND eu.EventID = @EventID;
 
             IF @TargetEU_UserID IS NULL OR @TargetActive = 0
-                THROW 50000, N'Ă‰rvĂ©nytelen vagy inaktĂ­v rĂ©sztvevĹ‘.', 1;
+                THROW 50000, N'Érvénytelen vagy inaktív résztvevő.', 1;
 
             IF @TargetEU_UserID <> @UserID
-                THROW 50000, N'Csak a sajĂˇt rĂ©szvĂ©teledet Ă©rtĂ©kelheted.', 1;
+                THROW 50000, N'Csak a saját részvételedet értékelheted.', 1;
 
             IF @TargetRoleType = 1
-                THROW 50000, N'SzervezĹ‘k nem Ă©rtĂ©kelhetnek.', 1;
+                THROW 50000, N'Szervezők nem értékelhetnek.', 1;
 
-            -- 3. EsemĂ©ny stĂˇtusz ellenĹ‘rzĂ©se
+            -- 3. Esemény státusz ellenőrzése
             DECLARE @EvStatusName NVARCHAR(200);
             SELECT @EvStatusName = es.StatusName
             FROM [EJ].[tblEvent] e
             LEFT JOIN [EJ].[tblEventStatus] es ON e.EventStatusID = es.id
             WHERE e.id = @EventID;
 
-            IF LOWER(@EvStatusName) NOT LIKE N'%lezĂˇrt%' AND LOWER(@EvStatusName) NOT LIKE N'%vĂ©ge%' AND LOWER(@EvStatusName) NOT LIKE N'%befejezve%'
-                THROW 50000, N'Az esemĂ©ny mĂ©g nincs lezĂˇrva.', 1;
+            IF LOWER(@EvStatusName) NOT LIKE N'%lezárt%' AND LOWER(@EvStatusName) NOT LIKE N'%vége%' AND LOWER(@EvStatusName) NOT LIKE N'%befejezve%'
+                THROW 50000, N'Az esemény még nincs lezárva.', 1;
 
-            -- 4. Ă‰rtĂ©kelĂ©s mentĂ©se vagy tĂ¶rlĂ©se
+            -- 4. Értékelés mentése vagy törlése
             IF @RatingType = 0
             BEGIN
                 UPDATE [EJ].[tblEventUser]
@@ -307,7 +307,7 @@ BEGIN
                     updatedAt = @Now
                 WHERE id = @RatingEventUserID AND EventID = @EventID;
                 
-                SET @ReturnDescription = N'Ă‰rtĂ©kelĂ©s tĂ¶rĂ¶lve.';
+                SET @ReturnDescription = N'Értékelés törölve.';
             END
             ELSE
             BEGIN
@@ -318,12 +318,12 @@ BEGIN
                     updatedAt = @Now
                 WHERE id = @RatingEventUserID AND EventID = @EventID;
                 
-                SET @ReturnDescription = N'Ă‰rtĂ©kelĂ©s mentve.';
+                SET @ReturnDescription = N'Értékelés mentve.';
             END
 
             COMMIT TRANSACTION;
 
-            -- Nincs SignalR / Outbox, itt befejezzĂĽk:
+            -- Nincs SignalR / Outbox, itt befejezzük:
             SELECT 1 AS ReturnValue, @ReturnDescription AS ReturnDescription, @EventID AS EventID, @Action AS Action;
             RETURN;
         END
@@ -399,14 +399,14 @@ BEGIN
             DECLARE @RoundID INT = JSON_VALUE(@Json, '$.Payload.EventRoundID');
             DECLARE @RoundStatusID INT = JSON_VALUE(@Json, '$.Payload.ToStatusID');
             
-            -- 1. FordulĂł stĂˇtusz frissĂ­tĂ©se
+            -- 1. Forduló státusz frissítése
             UPDATE [PTA].[tblEventRound] 
             SET EventRoundStatusID = @RoundStatusID, 
                 LastUpdatedUserID = @UserID, 
                 updatedAt = @Now 
             WHERE EventRoundID = @RoundID AND EventID = @EventID;
 
-            -- 2. AggregĂˇciĂł (csak ha LezĂˇrt vagy PublikĂˇlt)
+            -- 2. Aggregáció (csak ha Lezárt vagy Publikált)
             IF @Action IN (N'Pta.CloseRound', N'Pta.PublishRound')
             BEGIN
                 ;WITH AggregatedScores AS (
@@ -436,15 +436,15 @@ BEGIN
         BEGIN
             DECLARE @RoundDeskID INT = JSON_VALUE(@Json, '$.Payload.EventRoundDeskID');
 
-            -- KAPU VALIDĂCIĂ“K
-            -- 1. EsemĂ©ny stĂˇtusz ellenĹ‘rzĂ©se
+            -- KAPU VALIDĂCIÓK
+            -- 1. Esemény státusz ellenőrzése
             DECLARE @EventStatusName NVARCHAR(200) = (SELECT s.StatusName FROM [EJ].[tblEvent] e INNER JOIN [EJ].[tblEventStatus] s ON e.EventStatusID = s.id WHERE e.id = @EventID);
-            IF LOWER(REPLACE(REPLACE(@EventStatusName, N'Ăˇ', N'a'), N'Ă©', N'e')) NOT LIKE N'%jatek%'
+            IF LOWER(REPLACE(REPLACE(@EventStatusName, N'á', N'a'), N'é', N'e')) NOT LIKE N'%jatek%'
             BEGIN
-                THROW 50003, N'Permission Denied: Az esemĂ©ny stĂˇtusza nem JĂˇtĂ©k!', 1;
+                THROW 50003, N'Permission Denied: Az esemény státusza nem Játék!', 1;
             END
 
-            -- 2. FordulĂł stĂˇtusz ellenĹ‘rzĂ©se
+            -- 2. Forduló státusz ellenőrzése
             DECLARE @CurrentRoundID INT;
             DECLARE @CurrentRoundStatusName NVARCHAR(50);
             DECLARE @GameMasterUserID BIGINT;
@@ -458,12 +458,12 @@ BEGIN
             INNER JOIN [PTA].[tblEventRoundStatus] rs ON r.EventRoundStatusID = rs.EventRoundStatusID
             WHERE rd.EventRoundDeskID = @RoundDeskID;
 
-            IF @CurrentRoundStatusName IN (N'LezĂˇrt', N'PublikĂˇlt', N'KĂ¶zzĂ©tett')
+            IF @CurrentRoundStatusName IN (N'Lezárt', N'Publikált', N'Közzétett')
             BEGIN
-                THROW 50004, N'Permission Denied: A fordulĂł mĂˇr lezĂˇrt vagy publikĂˇlt!', 1;
+                THROW 50004, N'Permission Denied: A forduló már lezárt vagy publikált!', 1;
             END
 
-            -- 3. HĂ­vĂł ellenĹ‘rzĂ©se (GM vagy SzervezĹ‘)
+            -- 3. Hívó ellenőrzése (GM vagy Szervező)
             DECLARE @IsOrganizer BIT = (SELECT CASE WHEN EXISTS (
                 SELECT 1 FROM [EJ].[tblEventUser] eu 
                 INNER JOIN [EJ].[tblEventRoleTicket] ert ON eu.EventTicketID = ert.EventTicketID 
@@ -474,10 +474,10 @@ BEGIN
             
             IF @GameMasterUserID <> @UserID AND @IsOrganizer = 0
             BEGIN
-                THROW 50005, N'Permission Denied: Csak a JĂˇtĂ©kmester vagy SzervezĹ‘ pontozhat!', 1;
+                THROW 50005, N'Permission Denied: Csak a Játékmester vagy Szervező pontozhat!', 1;
             END
 
-            -- EREDMĂ‰NY MENTĂ‰SE
+            -- EREDMÉNY MENTÉSE
             UPDATE s
             SET Amount = j.Amount,
                 OnTrack = j.OnTrack,
@@ -504,7 +504,7 @@ BEGIN
                         FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
                     ));
 
-                    -- SignalR Outbox a gamer, organizer Ă©s contributor csoportokra
+                    -- SignalR Outbox a gamer, organizer és contributor csoportokra
                     INSERT INTO @SignalRTargets (TargetGroup, EventName, CustomPayload)
                     VALUES 
                         ('event_' + CAST(@EventID AS VARCHAR) + '_gamer', 'Pta.SetRoundStatus', @AutoPayload),
@@ -531,9 +531,9 @@ BEGIN
             DECLARE @PatchPhotoUrl NVARCHAR(500) = JSON_VALUE(@Json, '$.Payload.PhotoUrl');
             DECLARE @PatchSName NVARCHAR(50) = JSON_VALUE(@Json, '$.Payload.SName');
             
-            -- Ha SName = 'LezĂˇrt', akkor beĂˇllĂ­tjuk a CompletedAtUtc-t
+            -- Ha SName = 'Lezárt', akkor beállítjuk a CompletedAtUtc-t
             DECLARE @NewCompletedAt DATETIMEOFFSET = NULL;
-            IF @PatchSName = N'LezĂˇrt'
+            IF @PatchSName = N'Lezárt'
             BEGIN
                 SET @NewCompletedAt = @Now;
             END
@@ -573,7 +573,7 @@ BEGIN
         -- RS1: API response
         SELECT 1 AS ReturnValue, N'OK' AS ReturnDescription, @EventID AS EventID, @Action AS Action;
 
-        -- RS2: SignalR Hotload (Dinamikus kikĂĽldĂ©s a tblEventActionRule alapjĂˇn)
+        -- RS2: SignalR Hotload (Dinamikus kiküldés a tblEventActionRule alapján)
         DECLARE @HotloadJson NVARCHAR(MAX) = (
             SELECT 
                 @EventID AS EventID,
@@ -582,7 +582,7 @@ BEGIN
             FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
         );
 
-        -- 1. LekĂ©rdezzĂĽk a szabĂˇlyt az adatbĂˇzisbĂłl
+        -- 1. Lekérdezzük a szabályt az adatbázisból
         DECLARE @OrgNotify BIT, @ContNotify BIT, @PartNotify BIT, @UserNotify BIT, @GroupNotify BIT;
         SELECT 
             @OrgNotify = OrganizerNotifyFlg,
@@ -593,13 +593,13 @@ BEGIN
         FROM [EJ].[tblEventActionRule]
         WHERE [Action] = @Action AND ActiveFlg = 1;
 
-        -- Ha nincs benne a tĂˇblĂˇban a szabĂˇly, biztonsĂˇgi hĂˇlĂłkĂ©nt kĂĽldjĂĽk mindenkinek
+        -- Ha nincs benne a táblában a szabály, biztonsági hálóként küldjük mindenkinek
         IF @OrgNotify IS NULL
         BEGIN
             SET @OrgNotify = 1; SET @ContNotify = 1; SET @PartNotify = 1; SET @UserNotify = 0; SET @GroupNotify = 0;
         END
 
-        -- 2. AlapĂ©rtelmezett (visszhang) CĂ©lcsoportok generĂˇlĂˇsa
+        -- 2. Alapértelmezett (visszhang) Célcsoportok generálása
         IF @Action NOT IN (N'Pta.SetRoundStatus', N'Pta.CloseRound', N'Pta.PublishRound', N'Pta.ShowDisplay')
         BEGIN
             IF @OrgNotify = 1 INSERT INTO @SignalRTargets (TargetGroup, EventName, CustomPayload) VALUES ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', @Action, @HotloadJson);
@@ -618,10 +618,10 @@ BEGIN
             FROM @TargetEventUserIDs;
         END
 
-        -- GROUP csatorna logikĂˇt eltĂˇvolĂ­tottuk, a kliensek mĂˇr nem csatlakoznak rĂˇ.
+        -- GROUP csatorna logikát eltávolítottuk, a kliensek már nem csatlakoznak rá.
 
-        -- 3. EGYEDI JĂTĂ‰KOS-Ă‰RTESĂŤTĂ‰SEK FORDULĂ“ ZĂRĂSKOR
-        -- Ha PublishRound tĂ¶rtĂ©nt, kikĂĽldjĂĽk egyenkĂ©nt a privĂˇt csatornĂˇjukra
+        -- 3. EGYEDI JĂTÉKOS-ÉRTESëTÉSEK FORDULÓ ZĂRĂSKOR
+        -- Ha PublishRound történt, kiküldjük egyenként a privát csatornájukra
         IF @Action = N'Pta.PublishRound'
         BEGIN
             DECLARE @RoundID_Var INT = JSON_VALUE(@Json, '$.Payload.EventRoundID');
@@ -671,7 +671,7 @@ BEGIN
             WHERE ep.EventID = @EventID AND ep.EventUserID IS NOT NULL AND ep.ActiveFlg = 1;
         END
 
-        -- 4. STĂTUSZ FRISSĂŤTĂ‰S (KizĂˇrĂłlag Gamer csatornĂˇra)
+        -- 4. STĂTUSZ FRISSëTÉS (Kizárólag Gamer csatornára)
         IF @Action IN (N'Pta.SetRoundStatus', N'Pta.CloseRound', N'Pta.PublishRound')
         BEGIN
             DECLARE @GamerRoundID_Var INT = JSON_VALUE(@Json, '$.Payload.EventRoundID');
@@ -694,12 +694,12 @@ BEGIN
             VALUES ('event_' + CAST(@EventID AS VARCHAR) + '_gamer', @Action, @StatusPayload);
         END
 
-        -- 5. ASZTAL EREDMĂ‰NY CĂ‰LZOTT KĂśLDĂ‰SE (Csak GM)
+        -- 5. ASZTAL EREDMÉNY CÉLZOTT KĂśLDÉSE (Csak GM)
         IF @Action = N'Pta.SetDeskResults'
         BEGIN
             DECLARE @SDR_RoundDeskID INT = JSON_VALUE(@Json, '$.Payload.EventRoundDeskID');
             
-            -- JM (GameMaster) Ă©rtesĂ­tĂ©se
+            -- JM (GameMaster) értesítése
             INSERT INTO @SignalRTargets (TargetGroup, EventName, CustomPayload)
             SELECT 'event_' + CAST(@EventID AS VARCHAR) + '_user_' + CAST(eu.id AS VARCHAR), @Action, @HotloadJson
             FROM [PTA].[tblEventRoundDesk] rd

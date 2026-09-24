@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Net;
 using System.Text.Json;
@@ -32,7 +32,7 @@ namespace EventJoy.Api
 
             try
             {
-                var versions = new List<Dictionary<string, object>>();
+                var versions = new List<Dictionary<string, object?>>();
                 using (var conn = new SqlConnection(_connectionString))
                 {
                     await conn.OpenAsync();
@@ -44,13 +44,13 @@ namespace EventJoy.Api
                             {
                                 while (await reader.ReadAsync())
                                 {
-                                    var dict = new Dictionary<string, object>();
+                                    var dict = new Dictionary<string, object?>();
                                     for (int i = 0; i < reader.FieldCount; i++)
                                     {
                                         var val = reader.IsDBNull(i) ? null : reader.GetValue(i);
                                         if (reader.GetName(i) == "Items_JSON")
                                         {
-                                            dict.Add("Items", val != null ? JsonDocument.Parse(val.ToString()).RootElement : JsonDocument.Parse("[]").RootElement);
+                                            dict.Add("Items", val != null ? JsonDocument.Parse(val.ToString() ?? "[]").RootElement : JsonDocument.Parse("[]").RootElement);
                                         }
                                         else
                                         {

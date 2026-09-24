@@ -171,7 +171,7 @@ namespace EventJoy.Api
 
             try
             {
-                var materials = new List<Dictionary<string, object>>();
+                var materials = new List<Dictionary<string, object?>>();
                 int returnValue = 1;
                 string returnDesc = "OK";
 
@@ -198,9 +198,9 @@ namespace EventJoy.Api
                             {
                                 while (await reader.ReadAsync())
                                 {
-                                    var material = new Dictionary<string, object>();
+                                    var material = new Dictionary<string, object?>();
                                     for (int i = 0; i < reader.FieldCount; i++) material[reader.GetName(i)] = reader.IsDBNull(i) ? null : reader.GetValue(i);
-                                    material["Roles"] = new List<object>();
+                                    material["Roles"] = new List<object?>();
                                     materials.Add(material);
                                 }
                             }
@@ -209,13 +209,13 @@ namespace EventJoy.Api
                             {
                                 while (await reader.ReadAsync())
                                 {
-                                    var role = new Dictionary<string, object>();
+                                    var role = new Dictionary<string, object?>();
                                     for (int i = 0; i < reader.FieldCount; i++) role[reader.GetName(i)] = reader.IsDBNull(i) ? null : reader.GetValue(i);
                                     
-                                    var parentMat = materials.FirstOrDefault(m => (int)m["EventMaterialID"] == (int)role["EventMaterialID"]);
+                                    var parentMat = materials.FirstOrDefault(m => (int)(m["EventMaterialID"] ?? 0) == (int)(role["EventMaterialID"] ?? 0));
                                     if (parentMat != null)
                                     {
-                                        var rolesList = parentMat["Roles"] as List<object>;
+                                        var rolesList = parentMat["Roles"] as List<object?>;
                                         rolesList?.Add(role);
                                     }
                                 }

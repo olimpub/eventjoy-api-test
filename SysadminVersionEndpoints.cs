@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Net;
 using System.Text.Json;
@@ -31,7 +31,7 @@ namespace EventJoy.Api
 
             try
             {
-                var versions = new List<Dictionary<string, object>>();
+                var versions = new List<Dictionary<string, object?>>();
                 using (var conn = new SqlConnection(_connectionString))
                 {
                     await conn.OpenAsync();
@@ -43,14 +43,14 @@ namespace EventJoy.Api
                             {
                                 while (await reader.ReadAsync())
                                 {
-                                    var dict = new Dictionary<string, object>();
+                                    var dict = new Dictionary<string, object?>();
                                     for (int i = 0; i < reader.FieldCount; i++)
                                     {
                                         var val = reader.IsDBNull(i) ? null : reader.GetValue(i);
                                         // Parse JSON items if any
                                         if (reader.GetName(i) == "Items_JSON" && val != null)
                                         {
-                                            dict.Add("Items", JsonDocument.Parse(val.ToString()).RootElement);
+                                            dict.Add("Items", JsonDocument.Parse(val.ToString() ?? "[]").RootElement);
                                         }
                                         else
                                         {
@@ -90,12 +90,12 @@ namespace EventJoy.Api
                 var doc = JsonDocument.Parse(body).RootElement;
                 
                 int versionId = doc.TryGetProperty("VersionID", out var vid) && vid.ValueKind == JsonValueKind.Number ? vid.GetInt32() : 0;
-                string versionNumber = doc.GetProperty("VersionNumber").GetString();
+                string? versionNumber = doc.GetProperty("VersionNumber").GetString();
                 DateTime releaseDate = doc.GetProperty("ReleaseDate").GetDateTime();
-                string summary = doc.TryGetProperty("Summary", out var sm) ? sm.GetString() : null;
+                string? summary = doc.TryGetProperty("Summary", out var sm) ? sm.GetString() : null;
                 bool activeFlg = doc.TryGetProperty("ActiveFlg", out var act) ? act.GetBoolean() : true;
                 
-                string itemsJson = null;
+                string? itemsJson = null;
                 if (doc.TryGetProperty("Items", out var itemsElement) && itemsElement.ValueKind == JsonValueKind.Array)
                 {
                     itemsJson = itemsElement.GetRawText();

@@ -1,19 +1,19 @@
-﻿-- =============================================
+SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+GO
+-- =============================================
 -- Olimpub (OP) Schema Initialization
 -- Eseménytípus kódja: 43
--- JSON mezők kiszedve, 1:N relációkra cserélve a jobb adatbázis optimalizáció miatt.
 -- =============================================
 
 BEGIN TRAN;
 
--- 1. OP séma létrehozása (elszeparálja a pubkvíz specifikus táblákat a dbo/EJ tábláktól)
 IF NOT EXISTS (SELECT 1 FROM sys.schemas WHERE name = 'OP')
 BEGIN
     EXEC('CREATE SCHEMA OP');
 END
 GO
 
--- 2. OPFlg hozzáadása az EventType-hoz (hogy tudjuk, Olimpub-e a típus)
 IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('[EJ].[tblEventType]') AND name = 'OPFlg')
 BEGIN
     ALTER TABLE [EJ].[tblEventType] ADD OPFlg bit NULL;
@@ -22,95 +22,107 @@ GO
 UPDATE [EJ].[tblEventType] SET OPFlg = 1 WHERE id = 43;
 GO
 
--- 3. 'device' bejelentkezési típus (mert OTP nélkül lépnek be a kvízre a játékosok)
 IF NOT EXISTS (SELECT 1 FROM [EJ].[tblLoginIdentifierType] WHERE Code = 'device')
 BEGIN
     DECLARE @NewID INT;
-    SELECT @NewID = MAX(id) + 1 FROM [EJ].[tblLoginIdentifierType];
-    IF @NewID IS NULL SET @NewID = 1;
-    INSERT INTO [EJ].[tblLoginIdentifierType] (id, Code, Name, ActiveFlg) VALUES (@NewID, 'device', 'Device', 1);
+    SELECT @NewID = ISNULL(MAX(id), 0) + 1 FROM [EJ].[tblLoginIdentifierType];
+    INSERT INTO [EJ].[tblLoginIdentifierType] (id, Name, Code, createdAt, ActiveFlg)
+    VALUES (@NewID, 'Device', 'device', SYSDATETIMEOFFSET(), 1);
 END
 GO
 
 -- =============================================
--- Alap beállítások és Témakörök
+-- Törzsadatok
 -- =============================================
 
--- Kabala: A csapatok választható avatárjai / logói
-IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[Kabala]'))
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[tblKabala]'))
 BEGIN
-    CREATE TABLE OP.Kabala (
+    CREATE TABLE OP.tblKabala (
       id int IDENTITY PRIMARY KEY,
-      Name nvarchar(80) NOT NULL, -- Kabala neve (ebből lesz a csapat alap neve)
+      Name nvarchar(80) NOT NULL,
       ImageUrl nvarchar(500) NULL,
       ActiveFlg bit NOT NULL DEFAULT 1
     );
 END
 
--- Topic: Témakörök a kérdésekhez (pl. Földrajz, Zene)
-IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[Topic]'))
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[tblTopic]'))
 BEGIN
-    CREATE TABLE OP.Topic (
+    CREATE TABLE OP.tblTopic (
       id int IDENTITY PRIMARY KEY,
       Name nvarchar(120) NOT NULL,
-      DefaultRunningTimeSec int NOT NULL DEFAULT 60, -- Alapértelmezett másodperc, ha a kérdéshez nincs megadva
       ActiveFlg bit NOT NULL DEFAULT 1
     );
-    CREATE UNIQUE INDEX UX_OP_Topic_Name ON OP.Topic (Name) WHERE ActiveFlg = 1;
+END
+
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[tblQuestionType]'))
+BEGIN
+    CREATE TABLE OP.tblQuestionType (
+      id int IDENTITY PRIMARY KEY,
+      Code nvarchar(16) NOT NULL, -- single, multi, order, match, category, freetext
+      Name nvarchar(100) NOT NULL,
+      DefaultRunningTimeSec int NOT NULL DEFAULT 60, -- Itt tároljuk a típushoz tartozó alap futási időt
+      ActiveFlg bit NOT NULL DEFAULT 1
+    );
+END
+
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[tblRoundStatus]'))
+BEGIN
+    CREATE TABLE OP.tblRoundStatus (
+      id int IDENTITY PRIMARY KEY,
+      Code nvarchar(16) NOT NULL, -- pending, active, closed, published
+      Name nvarchar(100) NOT NULL,
+      ActiveFlg bit NOT NULL DEFAULT 1
+    );
 END
 
 -- =============================================
--- Kvízkérdések Repozitórium (1:N struktúra)
+-- Kérdés Repository
 -- =============================================
 
--- Question: A kérdés maga (Json nélkül)
-IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[Question]'))
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[tblQuestion]'))
 BEGIN
-    CREATE TABLE OP.Question (
+    CREATE TABLE OP.tblQuestion (
       id int IDENTITY PRIMARY KEY,
-      TopicID int NOT NULL REFERENCES OP.Topic(id),
-      TypeCode nvarchar(16) NOT NULL, -- single|multi|order|match|category|freetext
-      Prompt nvarchar(max) NOT NULL, -- A kérdés szövege
-      TimeSec int NULL, -- Ha NULL, akkor Topic.DefaultRunningTimeSec
-      MediaKey nvarchar(200) NULL, -- Kép / Hang azonosító
+      TopicID int NOT NULL, -- NINCS FK (tblTopic)
+      QuestionTypeID int NOT NULL, -- NINCS FK (tblQuestionType)
+      Prompt nvarchar(max) NOT NULL,
+      TimeSec int NOT NULL,
+      MediaUrl nvarchar(1000) NULL, -- Közvetlen URL a feltöltött anyaghoz
       ActiveFlg bit NOT NULL DEFAULT 1,
       CreatedAtUtc datetimeoffset NOT NULL DEFAULT SYSDATETIMEOFFSET()
     );
 END
 
--- QuestionOption: A kérdés válaszlehetőségei (sorrendben)
-IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[QuestionOption]'))
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[tblQuestionOption]'))
 BEGIN
-    CREATE TABLE OP.QuestionOption (
+    CREATE TABLE OP.tblQuestionOption (
       id int IDENTITY PRIMARY KEY,
-      QuestionID int NOT NULL REFERENCES OP.Question(id),
-      ListType nvarchar(50) NOT NULL, -- Polimorf lista: 'Options' (sima), 'Left'/'Right' (párosítós), 'Items'/'Cats' (kategóriás)
-      Value nvarchar(max) NOT NULL, -- A válaszlehetőség szövege
-      SortIndex int NOT NULL -- Megjelenési sorrend
+      QuestionID int NOT NULL, -- NINCS FK (tblQuestion)
+      ListType nvarchar(50) NOT NULL,
+      Value nvarchar(max) NOT NULL,
+      SortIndex int NOT NULL
     );
 END
 
--- QuestionCorrectAnswer: A helyes megoldás logikája (típustól függően mely mezők vannak kitöltve)
-IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[QuestionCorrectAnswer]'))
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[tblQuestionCorrectAnswer]'))
 BEGIN
-    CREATE TABLE OP.QuestionCorrectAnswer (
+    CREATE TABLE OP.tblQuestionCorrectAnswer (
       id int IDENTITY PRIMARY KEY,
-      QuestionID int NOT NULL REFERENCES OP.Question(id),
-      OptionID int NULL REFERENCES OP.QuestionOption(id), -- A helyes opció (single/multi), vagy a 'Left' / 'Item' opció
-      MatchOptionID int NULL REFERENCES OP.QuestionOption(id), -- Párosításnál a 'Right' / 'Cat' opció
-      SortIndex int NULL, -- Sorrendbe rakásnál a helyes sorrend sorszáma
-      TextValue nvarchar(500) NULL -- Szabad szöveges válasznál (freetext) az elfogadható szinonima
+      QuestionID int NOT NULL, -- NINCS FK
+      OptionID int NULL, -- NINCS FK
+      MatchOptionID int NULL, -- NINCS FK
+      SortIndex int NULL,
+      TextValue nvarchar(500) NULL
     );
 END
 
 -- =============================================
--- Esemény konfiguráció (1:N relációk a tömbök helyett)
+-- Esemény Beállítások és Csapatok
 -- =============================================
 
--- EventSettings: Alap beállítások egy konkrét eseményhez
-IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[EventSettings]'))
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[tblEventSettings]'))
 BEGIN
-    CREATE TABLE OP.EventSettings (
+    CREATE TABLE OP.tblEventSettings (
       id int IDENTITY PRIMARY KEY,
       EventID bigint NOT NULL UNIQUE, 
       DeskCountHint int NULL,
@@ -120,151 +132,133 @@ BEGIN
     );
 END
 
--- EventSettingTopic: Engedélyezett témakörök ezen az eseményen
-IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[EventSettingTopic]'))
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[tblEventSettingTopic]'))
 BEGIN
-    CREATE TABLE OP.EventSettingTopic (
+    CREATE TABLE OP.tblEventSettingTopic (
       EventID bigint NOT NULL,
-      TopicID int NOT NULL REFERENCES OP.Topic(id),
+      TopicID int NOT NULL, -- NINCS FK
       PRIMARY KEY (EventID, TopicID)
     );
 END
 
--- EventSettingExtraGame: Bekapcsolt extra minijátékok
-IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[EventSettingExtraGame]'))
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[tblEventSettingExtraGame]'))
 BEGIN
-    CREATE TABLE OP.EventSettingExtraGame (
+    CREATE TABLE OP.tblEventSettingExtraGame (
       EventID bigint NOT NULL,
       ExtraGameId nvarchar(8) NOT NULL,
       PRIMARY KEY (EventID, ExtraGameId)
     );
 END
 
--- EventSettingKabala: Választható kabalák ezen az eseményen
-IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[EventSettingKabala]'))
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[tblEventSettingKabala]'))
 BEGIN
-    CREATE TABLE OP.EventSettingKabala (
+    CREATE TABLE OP.tblEventSettingKabala (
       EventID bigint NOT NULL,
-      KabalaID int NOT NULL REFERENCES OP.Kabala(id),
+      KabalaID int NOT NULL, -- NINCS FK
       PRIMARY KEY (EventID, KabalaID)
     );
 END
 
--- =============================================
--- Csapatok és Játékosok
--- =============================================
-
-IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[Team]'))
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[tblTeam]'))
 BEGIN
-    CREATE TABLE OP.Team (
+    CREATE TABLE OP.tblTeam (
       id int IDENTITY PRIMARY KEY,
       EventID bigint NOT NULL,
-      KabalaID int NOT NULL REFERENCES OP.Kabala(id),
+      KabalaID int NOT NULL, -- NINCS FK
       ActiveFlg bit NOT NULL DEFAULT 1
     );
-    CREATE UNIQUE INDEX UX_OP_Team_EventKabala ON OP.Team (EventID, KabalaID) WHERE ActiveFlg = 1;
 END
 
-IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[TeamMember]'))
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[tblTeamMember]'))
 BEGIN
-    CREATE TABLE OP.TeamMember (
+    CREATE TABLE OP.tblTeamMember (
       id int IDENTITY PRIMARY KEY,
-      TeamID int NOT NULL REFERENCES OP.Team(id),
-      EventUserID bigint NOT NULL,
+      TeamID int NOT NULL, -- NINCS FK
+      EventUserID bigint NOT NULL, -- NINCS FK
       ActiveFlg bit NOT NULL DEFAULT 1
     );
-    CREATE UNIQUE INDEX UX_OP_TeamMember ON OP.TeamMember (TeamID, EventUserID) WHERE ActiveFlg = 1;
 END
 
 -- =============================================
--- Kvíz Körök és Élesített Kérdések
+-- Játékmenet
 -- =============================================
 
--- Round: Egy 8 kérdéses kvízkör állapota
-IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[Round]'))
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[tblRound]'))
 BEGIN
-    CREATE TABLE OP.Round (
+    CREATE TABLE OP.tblRound (
       id int IDENTITY PRIMARY KEY,
       EventID bigint NOT NULL,
-      TopicID int NULL REFERENCES OP.Topic(id),
-      Mode nvarchar(16) NOT NULL, -- fixed (előre megadott), pick (csapat választ), wheel (szerencsekerék)
-      StatusCode nvarchar(16) NOT NULL, -- pending | active | closed | published
-      Picker nvarchar(8) NULL,
+      TopicID int NULL, -- NINCS FK
+      Mode nvarchar(16) NOT NULL,
+      RoundStatusID int NOT NULL, -- NINCS FK (tblRoundStatus)
       SortIndex int NOT NULL,
       ActiveFlg bit NOT NULL DEFAULT 1
     );
 END
 
--- EventQuestion: A körben élesített kérdés időbélyegekkel
-IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[EventQuestion]'))
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[tblEventQuestion]'))
 BEGIN
-    CREATE TABLE OP.EventQuestion (
+    CREATE TABLE OP.tblEventQuestion (
       id int IDENTITY PRIMARY KEY,
       EventID bigint NOT NULL,
-      RoundID int NOT NULL REFERENCES OP.Round(id),
-      QuestionID int NOT NULL REFERENCES OP.Question(id),
+      RoundID int NOT NULL, -- NINCS FK
+      QuestionID int NOT NULL, -- NINCS FK
       SortIndex tinyint NOT NULL,
-      StatusCode nvarchar(16) NOT NULL, -- pending | active | stopped
+      StatusCode nvarchar(16) NOT NULL,
       StartedAtUtc datetimeoffset NULL,
       StoppedAtUtc datetimeoffset NULL,
       TimeSec int NOT NULL,
       ActiveFlg bit NOT NULL DEFAULT 1
     );
-    CREATE UNIQUE INDEX UX_OP_EQ_RoundSort ON OP.EventQuestion (RoundID, SortIndex) WHERE ActiveFlg = 1;
 END
 
 -- =============================================
--- Beküldött Válaszok (1:N struktúra)
+-- Beküldött Válaszok
 -- =============================================
 
--- Answer: A válasz fejléce (ki mikor küldte)
-IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[Answer]'))
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[tblAnswer]'))
 BEGIN
-    CREATE TABLE OP.Answer (
+    CREATE TABLE OP.tblAnswer (
       id int IDENTITY PRIMARY KEY,
-      EventQuestionID int NOT NULL REFERENCES OP.EventQuestion(id),
-      EventUserID bigint NOT NULL,
+      EventQuestionID int NOT NULL, -- NINCS FK
+      EventUserID bigint NOT NULL, -- NINCS FK
       ReceivedAtUtc datetimeoffset NOT NULL,
       ActiveFlg bit NOT NULL DEFAULT 1
     );
-    CREATE UNIQUE INDEX UX_OP_Answer_EQ_EU ON OP.Answer (EventQuestionID, EventUserID) WHERE ActiveFlg = 1;
 END
 
--- AnswerItem: A válasz részletei (mit pipált be, mit gépelt be)
-IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[AnswerItem]'))
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[tblAnswerItem]'))
 BEGIN
-    CREATE TABLE OP.AnswerItem (
+    CREATE TABLE OP.tblAnswerItem (
       id int IDENTITY PRIMARY KEY,
-      AnswerID int NOT NULL REFERENCES OP.Answer(id),
-      OptionID int NULL REFERENCES OP.QuestionOption(id),
-      MatchOptionID int NULL REFERENCES OP.QuestionOption(id),
+      AnswerID int NOT NULL, -- NINCS FK
+      OptionID int NULL, -- NINCS FK
+      MatchOptionID int NULL, -- NINCS FK
       SortIndex int NULL,
       TextValue nvarchar(500) NULL
     );
 END
 
 -- =============================================
--- Pontozás (Csapat és Árnyék)
+-- Pontozás
 -- =============================================
 
--- QuestionScore: Kérdésenkénti csapatpont
-IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[QuestionScore]'))
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[tblQuestionScore]'))
 BEGIN
-    CREATE TABLE OP.QuestionScore (
+    CREATE TABLE OP.tblQuestionScore (
       EventQuestionID int NOT NULL,
       TeamID int NOT NULL,
-      RawS decimal(12,4) NOT NULL, -- Kiszámolt pont a gyorsaság és helyes tagok arányában
-      C int NOT NULL, -- Helyeset beküldő tagok száma
-      W int NOT NULL, -- Rosszat beküldő tagok száma
-      SpeedT decimal(8,3) NULL, -- Első helyes beküldés ideje
+      RawS decimal(12,4) NOT NULL,
+      C int NOT NULL,
+      W int NOT NULL,
+      SpeedT decimal(8,3) NULL,
       PRIMARY KEY (EventQuestionID, TeamID)
     );
 END
 
--- ShadowScore: Egyéni pontok
-IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[ShadowScore]'))
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[tblShadowScore]'))
 BEGIN
-    CREATE TABLE OP.ShadowScore (
+    CREATE TABLE OP.tblShadowScore (
       EventQuestionID int NOT NULL,
       EventUserID bigint NOT NULL,
       S decimal(12,4) NOT NULL,
@@ -272,10 +266,9 @@ BEGIN
     );
 END
 
--- RoundScore: Kör összesített helyezése (F pontszám ami a fő tabellára megy)
-IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[RoundScore]'))
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[tblRoundScore]'))
 BEGIN
-    CREATE TABLE OP.RoundScore (
+    CREATE TABLE OP.tblRoundScore (
       RoundID int NOT NULL,
       TeamID int NOT NULL,
       RawSSum decimal(12,4) NOT NULL,
@@ -286,12 +279,12 @@ BEGIN
 END
 
 -- =============================================
--- Extra Játékok (1:N struktúra másolása a kvízről)
+-- Extra Játékok
 -- =============================================
 
-IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[ExtraRun]'))
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[tblExtraRun]'))
 BEGIN
-    CREATE TABLE OP.ExtraRun (
+    CREATE TABLE OP.tblExtraRun (
       id int IDENTITY PRIMARY KEY,
       EventID bigint NOT NULL,
       ExtraGameId nvarchar(8) NOT NULL,
@@ -301,72 +294,71 @@ BEGIN
     );
 END
 
-IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[ExtraQuestion]'))
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[tblExtraQuestion]'))
 BEGIN
-    CREATE TABLE OP.ExtraQuestion (
+    CREATE TABLE OP.tblExtraQuestion (
       id int IDENTITY PRIMARY KEY,
-      ExtraRunID int NOT NULL REFERENCES OP.ExtraRun(id),
+      ExtraRunID int NOT NULL, -- NINCS FK
       SortIndex tinyint NOT NULL,
-      TypeCode nvarchar(16) NOT NULL,
+      QuestionTypeID int NOT NULL, -- NINCS FK
       Prompt nvarchar(max) NOT NULL,
       TimeSec int NOT NULL,
-      MediaKey nvarchar(200) NULL,
+      MediaUrl nvarchar(1000) NULL,
       StatusCode nvarchar(16) NOT NULL,
       StartedAtUtc datetimeoffset NULL,
       StoppedAtUtc datetimeoffset NULL
     );
 END
 
-IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[ExtraQuestionOption]'))
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[tblExtraQuestionOption]'))
 BEGIN
-    CREATE TABLE OP.ExtraQuestionOption (
+    CREATE TABLE OP.tblExtraQuestionOption (
       id int IDENTITY PRIMARY KEY,
-      ExtraQuestionID int NOT NULL REFERENCES OP.ExtraQuestion(id),
+      ExtraQuestionID int NOT NULL, -- NINCS FK
       ListType nvarchar(50) NOT NULL,
       Value nvarchar(max) NOT NULL,
       SortIndex int NOT NULL
     );
 END
 
-IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[ExtraQuestionCorrectAnswer]'))
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[tblExtraQuestionCorrectAnswer]'))
 BEGIN
-    CREATE TABLE OP.ExtraQuestionCorrectAnswer (
+    CREATE TABLE OP.tblExtraQuestionCorrectAnswer (
       id int IDENTITY PRIMARY KEY,
-      ExtraQuestionID int NOT NULL REFERENCES OP.ExtraQuestion(id),
-      OptionID int NULL REFERENCES OP.ExtraQuestionOption(id),
-      MatchOptionID int NULL REFERENCES OP.ExtraQuestionOption(id),
+      ExtraQuestionID int NOT NULL, -- NINCS FK
+      OptionID int NULL, -- NINCS FK
+      MatchOptionID int NULL, -- NINCS FK
       SortIndex int NULL,
       TextValue nvarchar(500) NULL
     );
 END
 
-IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[ExtraAnswer]'))
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[tblExtraAnswer]'))
 BEGIN
-    CREATE TABLE OP.ExtraAnswer (
+    CREATE TABLE OP.tblExtraAnswer (
       id int IDENTITY PRIMARY KEY,
-      ExtraQuestionID int NOT NULL REFERENCES OP.ExtraQuestion(id),
-      EventUserID bigint NOT NULL,
+      ExtraQuestionID int NOT NULL, -- NINCS FK
+      EventUserID bigint NOT NULL, -- NINCS FK
       ReceivedAtUtc datetimeoffset NOT NULL,
       ActiveFlg bit NOT NULL DEFAULT 1
     );
-    CREATE UNIQUE INDEX UX_OP_ExtraAnswer ON OP.ExtraAnswer (ExtraQuestionID, EventUserID) WHERE ActiveFlg = 1;
 END
 
-IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[ExtraAnswerItem]'))
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[tblExtraAnswerItem]'))
 BEGIN
-    CREATE TABLE OP.ExtraAnswerItem (
+    CREATE TABLE OP.tblExtraAnswerItem (
       id int IDENTITY PRIMARY KEY,
-      ExtraAnswerID int NOT NULL REFERENCES OP.ExtraAnswer(id),
-      OptionID int NULL REFERENCES OP.ExtraQuestionOption(id),
-      MatchOptionID int NULL REFERENCES OP.ExtraQuestionOption(id),
+      ExtraAnswerID int NOT NULL, -- NINCS FK
+      OptionID int NULL, -- NINCS FK
+      MatchOptionID int NULL, -- NINCS FK
       SortIndex int NULL,
       TextValue nvarchar(500) NULL
     );
 END
 
-IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[ExtraScore]'))
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[tblExtraScore]'))
 BEGIN
-    CREATE TABLE OP.ExtraScore (
+    CREATE TABLE OP.tblExtraScore (
       ExtraRunID int NOT NULL,
       TeamID int NOT NULL,
       Points int NOT NULL,
@@ -375,16 +367,15 @@ BEGIN
 END
 
 -- =============================================
--- Büntetések és Média
+-- Büntetések és Kivetítő
 -- =============================================
 
--- Penalty: Kézi + vagy - pont a szervezőtől
-IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[Penalty]'))
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[tblPenalty]'))
 BEGIN
-    CREATE TABLE OP.Penalty (
+    CREATE TABLE OP.tblPenalty (
       id int IDENTITY PRIMARY KEY,
       EventID bigint NOT NULL,
-      TeamID int NOT NULL,
+      TeamID int NOT NULL, -- NINCS FK
       Points int NOT NULL,
       UndoOfID int NULL,
       CreatedAtUtc datetimeoffset NOT NULL DEFAULT SYSDATETIMEOFFSET(),
@@ -392,25 +383,9 @@ BEGIN
     );
 END
 
--- Media: Tárhely (Azure Blob) kapcsolat képeknek, hangoknak
-IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[Media]'))
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[tblDisplayToken]'))
 BEGIN
-    CREATE TABLE OP.Media (
-      id int IDENTITY PRIMARY KEY,
-      EventID bigint NOT NULL,
-      MediaKey nvarchar(200) NOT NULL,
-      BlobUrl nvarchar(1000) NOT NULL,
-      ContentHash nvarchar(64) NOT NULL,
-      Mime nvarchar(80) NOT NULL,
-      ActiveFlg bit NOT NULL DEFAULT 1
-    );
-    CREATE UNIQUE INDEX UX_OP_Media ON OP.Media (EventID, MediaKey) WHERE ActiveFlg = 1;
-END
-
--- DisplayToken: Kivetítő párosítási token PIN kóddal
-IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID('[OP].[DisplayToken]'))
-BEGIN
-    CREATE TABLE OP.DisplayToken (
+    CREATE TABLE OP.tblDisplayToken (
       id int IDENTITY PRIMARY KEY,
       EventID bigint NOT NULL,
       Pin char(4) NOT NULL,

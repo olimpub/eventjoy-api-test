@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Net;
 using System.Security.Claims;
@@ -28,11 +28,11 @@ namespace EventJoy.Api
         {
             public string Source { get; set; } = "Frontend";
             public string Severity { get; set; } = "Error";
-            public string UrlOrAction { get; set; }
-            public string ErrorMessage { get; set; }
-            public string StackTrace { get; set; }
-            public object ContextPayload { get; set; }
-            public object ClientInfo { get; set; }
+            public string? UrlOrAction { get; set; }
+            public string? ErrorMessage { get; set; }
+            public string? StackTrace { get; set; }
+            public object? ContextPayload { get; set; }
+            public object? ClientInfo { get; set; }
         }
 
         [Function("PostFrontendError")]
