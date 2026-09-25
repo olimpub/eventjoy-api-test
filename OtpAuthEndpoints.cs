@@ -43,7 +43,7 @@ namespace EventJoy.Api
             if (string.IsNullOrEmpty(data?.IdentityValue))
             {
                 var badReq = req.CreateResponse(System.Net.HttpStatusCode.BadRequest);
-                await badReq.WriteStringAsync("Identity (Email/Phone) required.");
+                await badReq.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = "Identity (Email/Phone) required." });
                 return badReq;
             }
 
@@ -102,7 +102,7 @@ namespace EventJoy.Api
             if (data == null || string.IsNullOrEmpty(data.IdentityValue) || string.IsNullOrEmpty(data.Password))
             {
                 var badReq = req.CreateResponse(System.Net.HttpStatusCode.BadRequest);
-                await badReq.WriteStringAsync("Identity and Password required.");
+                await badReq.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = "Identity and Password required." });
                 return badReq;
             }
 
@@ -231,7 +231,7 @@ namespace EventJoy.Api
             if (data == null || string.IsNullOrEmpty(data.IdentityValue) || string.IsNullOrEmpty(data.Password))
             {
                 var badReq = req.CreateResponse(System.Net.HttpStatusCode.BadRequest);
-                await badReq.WriteStringAsync("Identity and Password required.");
+                await badReq.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = "Identity and Password required." });
                 return badReq;
             }
 
@@ -346,7 +346,7 @@ namespace EventJoy.Api
             if (string.IsNullOrEmpty(data?.EmailAddress) && string.IsNullOrEmpty(data?.PhoneNumber))
             {
                 var badReq = req.CreateResponse(System.Net.HttpStatusCode.BadRequest);
-                await badReq.WriteStringAsync("Email or Phone required.");
+                await badReq.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = "Email or Phone required." });
                 return badReq;
             }
 
@@ -465,7 +465,7 @@ namespace EventJoy.Api
             if (data == null || string.IsNullOrEmpty(data.IdentityValue) || string.IsNullOrEmpty(data.ValidationCode))
             {
                 var badReq = req.CreateResponse(System.Net.HttpStatusCode.BadRequest);
-                await badReq.WriteStringAsync("IdentityValue and ValidationCode required.");
+                await badReq.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = "IdentityValue and ValidationCode required." });
                 return badReq;
             }
 
@@ -598,7 +598,7 @@ namespace EventJoy.Api
             if (string.IsNullOrEmpty(data?.Provider) || string.IsNullOrEmpty(data?.ProviderId))
             {
                 var badReq = req.CreateResponse(System.Net.HttpStatusCode.BadRequest);
-                await badReq.WriteStringAsync("Provider and ProviderId are required.");
+                await badReq.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = "Provider and ProviderId are required." });
                 return badReq;
             }
 
@@ -723,7 +723,7 @@ namespace EventJoy.Api
             {
                 _logger.LogError(ex, "Error in PostSocialLogin");
                 var err = req.CreateResponse(System.Net.HttpStatusCode.InternalServerError);
-                await err.WriteStringAsync("Internal server error");
+                await err.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = "Internal server error" });
                 return err;
             }
         }
@@ -767,7 +767,7 @@ namespace EventJoy.Api
             if (userId == null)
             {
                 var unauthRes = req.CreateResponse(System.Net.HttpStatusCode.Unauthorized);
-                await unauthRes.WriteStringAsync("Érvénytelen vagy lejárt bejelentkezési token!");
+                await unauthRes.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = "Érvénytelen vagy lejárt bejelentkezési token!" });
                 return unauthRes;
             }
 
@@ -855,7 +855,7 @@ namespace EventJoy.Api
             if (userId == null)
             {
                 var unauthRes = req.CreateResponse(System.Net.HttpStatusCode.Unauthorized);
-                await unauthRes.WriteStringAsync("Érvénytelen vagy lejárt bejelentkezési token!");
+                await unauthRes.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = "Érvénytelen vagy lejárt bejelentkezési token!" });
                 return unauthRes;
             }
 

@@ -284,7 +284,7 @@ namespace EventJoy.Api
             if (string.IsNullOrEmpty(query["from"]) || string.IsNullOrEmpty(query["to"]))
             {
                 var badReq = req.CreateResponse(HttpStatusCode.BadRequest);
-                await badReq.WriteStringAsync("Missing 'from' or 'to' query parameters.");
+                await badReq.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = "Missing 'from' or 'to' query parameters." });
                 return badReq;
             }
 
@@ -351,7 +351,7 @@ namespace EventJoy.Api
             if (string.IsNullOrEmpty(query["from"]) || string.IsNullOrEmpty(query["to"]))
             {
                 var badReq = req.CreateResponse(HttpStatusCode.BadRequest);
-                await badReq.WriteStringAsync("Missing 'from' or 'to' query parameters.");
+                await badReq.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = "Missing 'from' or 'to' query parameters." });
                 return badReq;
             }
 

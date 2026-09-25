@@ -209,7 +209,7 @@ namespace EventJoy.Api
             if (!isAuthorized)
             {
                 var errorRes = req.CreateResponse(HttpStatusCode.Unauthorized);
-                await errorRes.WriteStringAsync("A kivetítés lejárt.");
+                await errorRes.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = "A kivetítés lejárt." });
                 return errorRes;
             }
 
@@ -235,7 +235,7 @@ namespace EventJoy.Api
                             if (retVal != 1)
                             {
                                 var errRes = req.CreateResponse(HttpStatusCode.BadRequest);
-                                await errRes.WriteStringAsync(retDesc);
+                                await errRes.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = retDesc });
                                 return errRes;
                             }
                         }

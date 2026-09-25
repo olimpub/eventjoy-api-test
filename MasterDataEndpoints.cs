@@ -68,7 +68,7 @@ namespace EventJoy.Api
                             if (returnValue != 1)
                             {
                                 var errRes = req.CreateResponse(HttpStatusCode.BadRequest);
-                                await errRes.WriteStringAsync(returnDescription);
+                                await errRes.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = returnDescription });
                                 return errRes;
                             }
 

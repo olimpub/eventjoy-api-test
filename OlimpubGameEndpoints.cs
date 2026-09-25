@@ -40,7 +40,7 @@ namespace EventJoy.Api
             if (userId == null)
             {
                 var unauthRes = req.CreateResponse(System.Net.HttpStatusCode.Unauthorized);
-                await unauthRes.WriteStringAsync("Érvénytelen vagy lejárt bejelentkezési token!");
+                await unauthRes.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = "Érvénytelen vagy lejárt bejelentkezési token!" });
                 return unauthRes;
             }
 
@@ -52,7 +52,7 @@ namespace EventJoy.Api
                 if (data == null || data.EventID <= 0 || string.IsNullOrEmpty(data.Action))
                 {
                     var badReq = req.CreateResponse(System.Net.HttpStatusCode.BadRequest);
-                    await badReq.WriteStringAsync("Érvénytelen kérés: EventID és Action kötelező.");
+                    await badReq.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = "Érvénytelen kérés: EventID és Action kötelező." });
                     return badReq;
                 }
 

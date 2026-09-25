@@ -38,7 +38,7 @@ namespace EventJoy.Api
             if (userId == null)
             {
                 var unauthRes = req.CreateResponse(System.Net.HttpStatusCode.Unauthorized);
-                await unauthRes.WriteStringAsync("Érvénytelen vagy lejárt bejelentkezési token!");
+                await unauthRes.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = "Érvénytelen vagy lejárt bejelentkezési token!" });
                 return unauthRes;
             }
 
@@ -50,7 +50,7 @@ namespace EventJoy.Api
                 if (data == null || data.EventID <= 0 || data.TopicID <= 0 || data.RoundSortIndex <= 0)
                 {
                     var badReq = req.CreateResponse(System.Net.HttpStatusCode.BadRequest);
-                    await badReq.WriteStringAsync("Hiányzó vagy érvénytelen paraméterek (EventID, TopicID, RoundSortIndex).");
+                    await badReq.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = "Hiányzó vagy érvénytelen paraméterek (EventID, TopicID, RoundSortIndex)." });
                     return badReq;
                 }
 
@@ -118,7 +118,7 @@ namespace EventJoy.Api
             if (userId == null)
             {
                 var unauthRes = req.CreateResponse(System.Net.HttpStatusCode.Unauthorized);
-                await unauthRes.WriteStringAsync("Érvénytelen vagy lejárt bejelentkezési token!");
+                await unauthRes.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = "Érvénytelen vagy lejárt bejelentkezési token!" });
                 return unauthRes;
             }
 
@@ -128,7 +128,7 @@ namespace EventJoy.Api
                 if (string.IsNullOrWhiteSpace(requestBody))
                 {
                     var badReq = req.CreateResponse(System.Net.HttpStatusCode.BadRequest);
-                    await badReq.WriteStringAsync("Hiányzó kérés törzs.");
+                    await badReq.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = "Hiányzó kérés törzs." });
                     return badReq;
                 }
 
@@ -187,7 +187,7 @@ namespace EventJoy.Api
             if (userId == null)
             {
                 var unauthRes = req.CreateResponse(System.Net.HttpStatusCode.Unauthorized);
-                await unauthRes.WriteStringAsync("Érvénytelen vagy lejárt bejelentkezési token!");
+                await unauthRes.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = "Érvénytelen vagy lejárt bejelentkezési token!" });
                 return unauthRes;
             }
 
@@ -197,7 +197,7 @@ namespace EventJoy.Api
                 if (string.IsNullOrWhiteSpace(requestBody))
                 {
                     var badReq = req.CreateResponse(System.Net.HttpStatusCode.BadRequest);
-                    await badReq.WriteStringAsync("Hiányzó kérés törzs.");
+                    await badReq.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = "Hiányzó kérés törzs." });
                     return badReq;
                 }
 

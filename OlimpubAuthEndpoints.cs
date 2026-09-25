@@ -47,7 +47,7 @@ namespace EventJoy.Api
                 if (string.IsNullOrEmpty(data?.DeviceId) || string.IsNullOrEmpty(data?.EventUID))
                 {
                     var badReq = req.CreateResponse(System.Net.HttpStatusCode.BadRequest);
-                    await badReq.WriteStringAsync("DeviceId and EventUID are required.");
+                    await badReq.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = "DeviceId and EventUID are required." });
                     return badReq;
                 }
 

@@ -26,7 +26,7 @@ namespace EventJoy.Api
             if (!Guid.TryParse(mailId, out Guid parsedMailId))
             {
                 var badReq = req.CreateResponse(System.Net.HttpStatusCode.BadRequest);
-                await badReq.WriteStringAsync("Érvénytelen GUID!");
+                await badReq.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = "Érvénytelen GUID!" });
                 return badReq;
             }
 
@@ -48,7 +48,7 @@ namespace EventJoy.Api
             await sender.SendMessageAsync(sbMessage);
             
             var response = req.CreateResponse(System.Net.HttpStatusCode.OK);
-            await response.WriteStringAsync($"Sikeresen felküldve a Service Busra! UID: {parsedMailId}\nNézd a terminál logot, hogy elindult-e az EmailRouterFunction!");
+            await response.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = $"Sikeresen felküldve a Service Busra! UID: {parsedMailId}\nNézd a terminál logot, hogy elindult-e az EmailRouterFunction!" });
             return response;
         }
     }

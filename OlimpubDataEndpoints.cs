@@ -70,7 +70,7 @@ namespace EventJoy.Api
                 if (!isDisplay)
                 {
                     var unauthRes = req.CreateResponse(System.Net.HttpStatusCode.Unauthorized);
-                    await unauthRes.WriteStringAsync("Érvénytelen vagy lejárt bejelentkezési token!");
+                    await unauthRes.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = "Érvénytelen vagy lejárt bejelentkezési token!" });
                     return unauthRes;
                 }
             }

@@ -51,7 +51,7 @@ namespace EventJoy.Api
             {
                 _logger.LogWarning("Unauthorized access attempt to GetUserData.");
                 var unauthRes = req.CreateResponse(HttpStatusCode.Unauthorized);
-                await unauthRes.WriteStringAsync("Ă‰rvĂ©nytelen vagy lejĂˇrt bejelentkezĂ©si token!");
+                await unauthRes.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = "Ă‰rvĂ©nytelen vagy lejĂˇrt bejelentkezĂ©si token!" });
                 return unauthRes;
             }
 
@@ -81,7 +81,7 @@ namespace EventJoy.Api
                             if (returnValue != 1)
                             {
                                 var errRes = req.CreateResponse(HttpStatusCode.BadRequest);
-                                await errRes.WriteStringAsync(returnDescription);
+                                await errRes.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = returnDescription });
                                 return errRes;
                             }
 
@@ -173,7 +173,7 @@ namespace EventJoy.Api
             {
                 _logger.LogWarning("Unauthorized access attempt to SaveUser.");
                 var unauthRes = req.CreateResponse(HttpStatusCode.Unauthorized);
-                await unauthRes.WriteStringAsync("Ă‰rvĂ©nytelen vagy lejĂˇrt bejelentkezĂ©si token!");
+                await unauthRes.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = "Ă‰rvĂ©nytelen vagy lejĂˇrt bejelentkezĂ©si token!" });
                 return unauthRes;
             }
 
@@ -210,7 +210,7 @@ namespace EventJoy.Api
                             if (returnValue != 1)
                             {
                                 var errRes = req.CreateResponse(HttpStatusCode.BadRequest);
-                                await errRes.WriteStringAsync(returnDescription);
+                                await errRes.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = returnDescription });
                                 return errRes;
                             }
 

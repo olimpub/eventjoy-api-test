@@ -91,7 +91,7 @@ namespace EventJoy.Api
             if (userId == null)
             {
                 var unauthRes = req.CreateResponse(HttpStatusCode.Unauthorized);
-                await unauthRes.WriteStringAsync("Ă‰rvĂ©nytelen vagy lejĂˇrt bejelentkezĂ©si token!");
+                await unauthRes.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = "Ă‰rvĂ©nytelen vagy lejĂˇrt bejelentkezĂ©si token!" });
                 return unauthRes;
             }
 
@@ -120,7 +120,7 @@ namespace EventJoy.Api
                             if (returnValue != 1)
                             {
                                 var errRes = req.CreateResponse(HttpStatusCode.BadRequest);
-                                await errRes.WriteStringAsync(returnDescription);
+                                await errRes.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = returnDescription });
                                 return errRes;
                             }
 
@@ -188,7 +188,7 @@ namespace EventJoy.Api
             if (userId == null)
             {
                 var unauthRes = req.CreateResponse(HttpStatusCode.Unauthorized);
-                await unauthRes.WriteStringAsync("Ă‰rvĂ©nytelen vagy lejĂˇrt bejelentkezĂ©si token!");
+                await unauthRes.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = "Ă‰rvĂ©nytelen vagy lejĂˇrt bejelentkezĂ©si token!" });
                 return unauthRes;
             }
 
@@ -217,7 +217,7 @@ namespace EventJoy.Api
                             if (returnValue != 1)
                             {
                                 var errRes = req.CreateResponse(HttpStatusCode.BadRequest);
-                                await errRes.WriteStringAsync(returnDescription);
+                                await errRes.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = returnDescription });
                                 return errRes;
                             }
 
@@ -332,7 +332,7 @@ namespace EventJoy.Api
             if (!Guid.TryParse(uid, out Guid parsedUid))
             {
                 var badReqRes = req.CreateResponse(HttpStatusCode.BadRequest);
-                await badReqRes.WriteStringAsync("Ă‰rvĂ©nytelen UID formĂˇtum!");
+                await badReqRes.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = "Ă‰rvĂ©nytelen UID formĂˇtum!" });
                 return badReqRes;
             }
 
@@ -361,7 +361,7 @@ namespace EventJoy.Api
                             if (returnValue != 1)
                             {
                                 var errRes = req.CreateResponse(HttpStatusCode.BadRequest);
-                                await errRes.WriteStringAsync(returnDescription);
+                                await errRes.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = returnDescription });
                                 return errRes;
                             }
 
@@ -428,7 +428,7 @@ namespace EventJoy.Api
             if (userId == null)
             {
                 var unauthRes = req.CreateResponse(HttpStatusCode.Unauthorized);
-                await unauthRes.WriteStringAsync("Ă‰rvĂ©nytelen vagy lejĂˇrt bejelentkezĂ©si token!");
+                await unauthRes.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = "Ă‰rvĂ©nytelen vagy lejĂˇrt bejelentkezĂ©si token!" });
                 return unauthRes;
             }
 
@@ -462,7 +462,7 @@ namespace EventJoy.Api
                             if (returnValue != 1)
                             {
                                 var errRes = req.CreateResponse(HttpStatusCode.BadRequest);
-                                await errRes.WriteStringAsync(returnDescription);
+                                await errRes.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = returnDescription });
                                 return errRes;
                             }
 
@@ -481,7 +481,7 @@ namespace EventJoy.Api
             {
                 _logger.LogError(ex, "Error saving event.");
                 var errorRes = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorRes.WriteStringAsync($"Error: {ex.Message} | StackTrace: {ex.StackTrace}");
+                await errorRes.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = $"Error: {ex.Message} | StackTrace: {ex.StackTrace}" });
                 return errorRes;
             }
         }
@@ -494,7 +494,7 @@ namespace EventJoy.Api
             if (userId == null)
             {
                 var unauthRes = req.CreateResponse(HttpStatusCode.Unauthorized);
-                await unauthRes.WriteStringAsync("Ă‰rvĂ©nytelen vagy lejĂˇrt bejelentkezĂ©si token!");
+                await unauthRes.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = "Ă‰rvĂ©nytelen vagy lejĂˇrt bejelentkezĂ©si token!" });
                 return unauthRes;
             }
 
@@ -530,7 +530,7 @@ namespace EventJoy.Api
                             if (returnValue != 1)
                             {
                                 var errRes = req.CreateResponse(HttpStatusCode.BadRequest);
-                                await errRes.WriteStringAsync(returnDescription);
+                                await errRes.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = returnDescription });
                                 return errRes;
                             }
 
@@ -627,7 +627,7 @@ namespace EventJoy.Api
             {
                 _logger.LogError(ex, "Error changing event.");
                 var errorRes = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorRes.WriteStringAsync($"Error: {ex.Message} | StackTrace: {ex.StackTrace}");
+                await errorRes.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = $"Error: {ex.Message} | StackTrace: {ex.StackTrace}" });
                 return errorRes;
             }
         }
@@ -640,7 +640,7 @@ namespace EventJoy.Api
             if (userId == null)
             {
                 var unauthRes = req.CreateResponse(HttpStatusCode.Unauthorized);
-                await unauthRes.WriteStringAsync("Ă‰rvĂ©nytelen vagy lejĂˇrt bejelentkezĂ©si token!");
+                await unauthRes.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = "Ă‰rvĂ©nytelen vagy lejĂˇrt bejelentkezĂ©si token!" });
                 return unauthRes;
             }
 
@@ -674,7 +674,7 @@ namespace EventJoy.Api
                             if (returnValue != 1)
                             {
                                 var errRes = req.CreateResponse(HttpStatusCode.BadRequest);
-                                await errRes.WriteStringAsync(returnDescription);
+                                await errRes.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = returnDescription });
                                 return errRes;
                             }
 
@@ -693,7 +693,7 @@ namespace EventJoy.Api
             {
                 _logger.LogError(ex, "Error saving event content.");
                 var errorRes = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorRes.WriteStringAsync($"Error: {ex.Message} | StackTrace: {ex.StackTrace}");
+                await errorRes.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = $"Error: {ex.Message} | StackTrace: {ex.StackTrace}" });
                 return errorRes;
             }
         }
@@ -706,7 +706,7 @@ namespace EventJoy.Api
             if (userId == null)
             {
                 var unauthRes = req.CreateResponse(HttpStatusCode.Unauthorized);
-                await unauthRes.WriteStringAsync("Ă‰rvĂ©nytelen vagy lejĂˇrt bejelentkezĂ©si token!");
+                await unauthRes.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = "Ă‰rvĂ©nytelen vagy lejĂˇrt bejelentkezĂ©si token!" });
                 return unauthRes;
             }
 
@@ -788,7 +788,7 @@ namespace EventJoy.Api
             {
                 _logger.LogError(ex, "Error importing invitations.");
                 var errorRes = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorRes.WriteStringAsync($"Error: {ex.Message} | StackTrace: {ex.StackTrace}");
+                await errorRes.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = $"Error: {ex.Message} | StackTrace: {ex.StackTrace}" });
                 return errorRes;
             }
         }
@@ -800,7 +800,7 @@ namespace EventJoy.Api
             if (userId == null)
             {
                 var unauthRes = req.CreateResponse(HttpStatusCode.Unauthorized);
-                await unauthRes.WriteStringAsync("Érvénytelen vagy lejárt bejelentkezési token!");
+                await unauthRes.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = "Érvénytelen vagy lejárt bejelentkezési token!" });
                 return unauthRes;
             }
 
@@ -859,25 +859,25 @@ namespace EventJoy.Api
                         if (returnValue == 400)
                         {
                             var badReq = req.CreateResponse(HttpStatusCode.BadRequest);
-                            await badReq.WriteStringAsync(returnDescription);
+                            await badReq.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = returnDescription });
                             return badReq;
                         }
                         if (returnValue == 403)
                         {
                             var forbid = req.CreateResponse(HttpStatusCode.Forbidden);
-                            await forbid.WriteStringAsync(returnDescription);
+                            await forbid.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = returnDescription });
                             return forbid;
                         }
                         if (returnValue == 409)
                         {
                             var confReq = req.CreateResponse(HttpStatusCode.Conflict);
-                            await confReq.WriteStringAsync(returnDescription);
+                            await confReq.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = returnDescription });
                             return confReq;
                         }
                         if (returnValue != 0)
                         {
                             var serverErr = req.CreateResponse(HttpStatusCode.InternalServerError);
-                            await serverErr.WriteStringAsync(returnDescription);
+                            await serverErr.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = returnDescription });
                             return serverErr;
                         }
 
@@ -898,7 +898,7 @@ namespace EventJoy.Api
             {
                 _logger.LogError(ex, "Error in AddWalkinParticipant.");
                 var errorRes = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorRes.WriteStringAsync($"Error: {ex.Message}");
+                await errorRes.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = $"Error: {ex.Message}" });
                 return errorRes;
             }
         }
@@ -910,7 +910,7 @@ namespace EventJoy.Api
                 if (!Guid.TryParse(eventUid, out var uid))
                 {
                     var badRes = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await badRes.WriteStringAsync("Érvénytelen EventUID.");
+                    await badRes.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = "Érvénytelen EventUID." });
                     return badRes;
                 }
 
@@ -933,7 +933,7 @@ namespace EventJoy.Api
                                 if (returnValue == 404)
                                 {
                                     var notFound = req.CreateResponse(HttpStatusCode.NotFound);
-                                    await notFound.WriteStringAsync(returnDescription);
+                                    await notFound.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = returnDescription });
                                     return notFound;
                                 }
 
@@ -953,14 +953,14 @@ namespace EventJoy.Api
                 }
                 
                 var err = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await err.WriteStringAsync("Ismeretlen hiba.");
+                await err.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = "Ismeretlen hiba." });
                 return err;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error getting event join info.");
                 var errorRes = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorRes.WriteStringAsync($"Error: {ex.Message}");
+                await errorRes.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = $"Error: {ex.Message}" });
                 return errorRes;
             }
         }
@@ -973,7 +973,7 @@ namespace EventJoy.Api
             if (userId == null)
             {
                 var unauthRes = req.CreateResponse(HttpStatusCode.Unauthorized);
-                await unauthRes.WriteStringAsync("Érvénytelen vagy lejárt bejelentkezési token!");
+                await unauthRes.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = "Érvénytelen vagy lejárt bejelentkezési token!" });
                 return unauthRes;
             }
 
@@ -986,7 +986,7 @@ namespace EventJoy.Api
                 if (string.IsNullOrEmpty(eventUidStr) || !Guid.TryParse(eventUidStr, out var eventUid))
                 {
                     var badReq = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await badReq.WriteStringAsync("Érvénytelen vagy hiányzó EventUID.");
+                    await badReq.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = "Érvénytelen vagy hiányzó EventUID." });
                     return badReq;
                 }
 
@@ -1019,19 +1019,19 @@ namespace EventJoy.Api
                         if (returnValue == 400)
                         {
                             var badReq = req.CreateResponse(HttpStatusCode.BadRequest);
-                            await badReq.WriteStringAsync(returnDescription);
+                            await badReq.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = returnDescription });
                             return badReq;
                         }
                         if (returnValue == 404)
                         {
                             var notFound = req.CreateResponse(HttpStatusCode.NotFound);
-                            await notFound.WriteStringAsync(returnDescription);
+                            await notFound.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = returnDescription });
                             return notFound;
                         }
                         if (returnValue != 0)
                         {
                             var serverErr = req.CreateResponse(HttpStatusCode.InternalServerError);
-                            await serverErr.WriteStringAsync(returnDescription);
+                            await serverErr.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = returnDescription });
                             return serverErr;
                         }
 
@@ -1051,7 +1051,7 @@ namespace EventJoy.Api
             {
                 _logger.LogError(ex, "Error in JoinEvent.");
                 var errorRes = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorRes.WriteStringAsync($"Error: {ex.Message}");
+                await errorRes.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = $"Error: {ex.Message}" });
                 return errorRes;
             }
         }
