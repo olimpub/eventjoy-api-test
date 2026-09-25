@@ -1,4 +1,4 @@
-SET QUOTED_IDENTIFIER ON;
+﻿SET QUOTED_IDENTIFIER ON;
 SET ANSI_NULLS ON;
 GO
 CREATE OR ALTER PROCEDURE [EJ].[spImportInvitations]
@@ -187,7 +187,15 @@ BEGIN
           AND EventTicketID IS NOT NULL
           AND RoleTypeID <> 1;
 
+
+        UPDATE i
+        SET ResultMsg = CONCAT(ISNULL(i.ResultMsg + '; ', ''), N'Már résztvevő')
+        FROM #Invitations i
+        INNER JOIN [EJ].[tblUser] u ON LOWER(LTRIM(RTRIM(i.Email))) = LOWER(LTRIM(RTRIM(u.Email)))
+        INNER JOIN [EJ].[tblEventUser] eu ON eu.UserID = u.id AND eu.EventID = @EventID;
+
         -- 6. Hiba riportolás
+
         DECLARE @ErrorCount INT;
         SELECT @ErrorCount = COUNT(*) FROM #Invitations WHERE ResultMsg IS NOT NULL;
 
@@ -327,4 +335,5 @@ BEGIN
     END CATCH
 END
 GO
+
 
