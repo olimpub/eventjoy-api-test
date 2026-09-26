@@ -142,7 +142,7 @@ namespace EventJoy.Api
                                                     if (!string.IsNullOrEmpty(imgKey))
                                                     {
                                                         try {
-                                                            BlobClient blobClient = containerClient.GetBlobClient($"{@"{id}"}/{imgKey}");
+                                                            BlobClient blobClient = containerClient.GetBlobClient($"{id}/{imgKey}");
                                                             BlobSasBuilder sasBuilder = new BlobSasBuilder() { BlobContainerName = containerClient.Name, BlobName = blobClient.Name, Resource = "b", StartsOn = DateTimeOffset.UtcNow.AddMinutes(-5), ExpiresOn = DateTimeOffset.UtcNow.AddHours(12) };
                                                             sasBuilder.SetPermissions(BlobSasPermissions.Read);
                                                             row["ImageUrl"] = blobClient.GenerateSasUri(sasBuilder).ToString();
@@ -157,7 +157,7 @@ namespace EventJoy.Api
                                                     if (!string.IsNullOrEmpty(audKey))
                                                     {
                                                         try {
-                                                            BlobClient blobClient = containerClient.GetBlobClient($"{@"{id}"}/{audKey}");
+                                                            BlobClient blobClient = containerClient.GetBlobClient($"{id}/{audKey}");
                                                             BlobSasBuilder sasBuilder = new BlobSasBuilder() { BlobContainerName = containerClient.Name, BlobName = blobClient.Name, Resource = "b", StartsOn = DateTimeOffset.UtcNow.AddMinutes(-5), ExpiresOn = DateTimeOffset.UtcNow.AddHours(12) };
                                                             sasBuilder.SetPermissions(BlobSasPermissions.Read);
                                                             row["AudioUrl"] = blobClient.GenerateSasUri(sasBuilder).ToString();
