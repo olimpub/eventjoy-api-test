@@ -196,26 +196,8 @@ namespace EventJoy.Api.Endpoints
                     }
                 }
 
-                string readSasUrl = payload.BlobUrl;
-                try {
-                    BlobServiceClient blobServiceClient = new BlobServiceClient(_storageConnectionString);
-                    BlobContainerClient containerClient = blobServiceClient.GetBlobContainerClient("op-media");
-                    string blobName = $"{payload.EventID}/{payload.MediaKey}";
-                    BlobClient blobClient = containerClient.GetBlobClient(blobName);
-                    BlobSasBuilder sasBuilder = new BlobSasBuilder()
-                    {
-                        BlobContainerName = containerClient.Name,
-                        BlobName = blobClient.Name,
-                        Resource = "b",
-                        StartsOn = DateTimeOffset.UtcNow.AddMinutes(-5),
-                        ExpiresOn = DateTimeOffset.UtcNow.AddHours(12)
-                    };
-                    sasBuilder.SetPermissions(BlobSasPermissions.Read);
-                    readSasUrl = blobClient.GenerateSasUri(sasBuilder).ToString();
-                } catch { }
-
                 var res = req.CreateResponse(HttpStatusCode.OK);
-                await res.WriteAsJsonAsync(new { ReturnValue = 1, MediaKey = payload.MediaKey, BlobUrl = readSasUrl, ContentHash = payload.ContentHash, Kind = payload.Kind });
+                await res.WriteAsJsonAsync(new { ReturnValue = 1, MediaKey = payload.MediaKey, BlobUrl = payload.BlobUrl, ContentHash = payload.ContentHash, Kind = payload.Kind });
                 return res;
             }
             catch (Exception ex)
@@ -254,21 +236,6 @@ namespace EventJoy.Api.Endpoints
                             string mediaKey = reader.GetString(0);
                             string blobName = $"{eventId}/{mediaKey}";
                             
-                            string readSasUrl = "";
-                            try {
-                                BlobClient blobClient = containerClient.GetBlobClient(blobName);
-                                BlobSasBuilder sasBuilder = new BlobSasBuilder()
-                                {
-                                    BlobContainerName = containerClient.Name,
-                                    BlobName = blobClient.Name,
-                                    Resource = "b",
-                                    StartsOn = DateTimeOffset.UtcNow.AddMinutes(-5),
-                                    ExpiresOn = DateTimeOffset.UtcNow.AddHours(12)
-                                };
-                                sasBuilder.SetPermissions(BlobSasPermissions.Read);
-                                readSasUrl = blobClient.GenerateSasUri(sasBuilder).ToString();
-                            } catch { }
-
                             items.Add(new {
                                 MediaKey = mediaKey,
                                 Kind = reader.GetString(1),
@@ -276,7 +243,7 @@ namespace EventJoy.Api.Endpoints
                                 Mime = reader.GetString(3),
                                 SizeInBytes = reader.GetInt64(4),
                                 ContentHash = reader.GetString(5),
-                                BlobUrl = string.IsNullOrEmpty(readSasUrl) ? reader.GetString(6) : readSasUrl
+                                BlobUrl = reader.GetString(6)
                             });
                         }
                     }

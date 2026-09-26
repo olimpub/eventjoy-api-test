@@ -141,12 +141,8 @@ namespace EventJoy.Api
                                                     string? imgKey = row.ContainsKey("ImageKey") ? row["ImageKey"]?.ToString() : null;
                                                     if (!string.IsNullOrEmpty(imgKey))
                                                     {
-                                                        try {
-                                                            BlobClient blobClient = containerClient.GetBlobClient($"{id}/{imgKey}");
-                                                            BlobSasBuilder sasBuilder = new BlobSasBuilder() { BlobContainerName = containerClient.Name, BlobName = blobClient.Name, Resource = "b", StartsOn = DateTimeOffset.UtcNow.AddMinutes(-5), ExpiresOn = DateTimeOffset.UtcNow.AddHours(12) };
-                                                            sasBuilder.SetPermissions(BlobSasPermissions.Read);
-                                                            row["ImageUrl"] = blobClient.GenerateSasUri(sasBuilder).ToString();
-                                                        } catch { row["ImageUrl"] = null; }
+                                                        BlobClient blobClient = containerClient.GetBlobClient($"{id}/{imgKey}");
+                                                        row["ImageUrl"] = blobClient.Uri.ToString();
                                                     }
                                                     else
                                                     {
@@ -156,12 +152,8 @@ namespace EventJoy.Api
                                                     string? audKey = row.ContainsKey("AudioKey") ? row["AudioKey"]?.ToString() : null;
                                                     if (!string.IsNullOrEmpty(audKey))
                                                     {
-                                                        try {
-                                                            BlobClient blobClient = containerClient.GetBlobClient($"{id}/{audKey}");
-                                                            BlobSasBuilder sasBuilder = new BlobSasBuilder() { BlobContainerName = containerClient.Name, BlobName = blobClient.Name, Resource = "b", StartsOn = DateTimeOffset.UtcNow.AddMinutes(-5), ExpiresOn = DateTimeOffset.UtcNow.AddHours(12) };
-                                                            sasBuilder.SetPermissions(BlobSasPermissions.Read);
-                                                            row["AudioUrl"] = blobClient.GenerateSasUri(sasBuilder).ToString();
-                                                        } catch { row["AudioUrl"] = null; }
+                                                        BlobClient blobClient = containerClient.GetBlobClient($"{id}/{audKey}");
+                                                        row["AudioUrl"] = blobClient.Uri.ToString();
                                                     }
                                                     else
                                                     {
