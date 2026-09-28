@@ -17,10 +17,9 @@ namespace EventJoy.Api
     public class DeviceJoinDto
     {
         public string DeviceId { get; set; } = string.Empty;
-        public string EventUID { get; set; } = string.Empty;
+        public string? EventUID { get; set; }
         public int? TeamId { get; set; }
-        public string? LastName { get; set; }
-        public string? FirstName { get; set; }
+        public string? Nickname { get; set; }
     }
 
     public class OlimpubAuthEndpoints
@@ -44,10 +43,10 @@ namespace EventJoy.Api
                 string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
                 var data = JsonConvert.DeserializeObject<DeviceJoinDto>(requestBody);
 
-                if (string.IsNullOrEmpty(data?.DeviceId) || string.IsNullOrEmpty(data?.EventUID))
+                if (string.IsNullOrEmpty(data?.DeviceId) || string.IsNullOrEmpty(data?.Nickname))
                 {
                     var badReq = req.CreateResponse(System.Net.HttpStatusCode.BadRequest);
-                    await badReq.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = "DeviceId and EventUID are required." });
+                    await badReq.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = "DeviceId and Nickname are required." });
                     return badReq;
                 }
 
@@ -77,6 +76,7 @@ namespace EventJoy.Api
                                     eventId = reader["EventID"] != DBNull.Value ? Convert.ToInt64(reader["EventID"]) : null;
                                     eventUserId = reader["EventUserID"] != DBNull.Value ? Convert.ToInt64(reader["EventUserID"]) : null;
                                     userId = reader["UserID"] != DBNull.Value ? Convert.ToInt64(reader["UserID"]) : null;
+                                    if (data != null) data.Nickname = reader["Nickname"]?.ToString();
                                 }
                             }
                         }

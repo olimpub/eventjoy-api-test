@@ -1,8 +1,4 @@
-SET QUOTED_IDENTIFIER ON;
-SET ANSI_NULLS ON;
-GO
-
-CREATE OR ALTER PROCEDURE [OP].[spGetLeaderboard]
+ALTER PROCEDURE [OP].[spGetLeaderboard]
     @EventID BIGINT,
     @Board NVARCHAR(50),
     @UserID BIGINT = NULL
@@ -10,7 +6,7 @@ AS
 BEGIN
     SET NOCOUNT ON;
 
-    -- Szerepkör megállapítása (Játékos nem láthatja a raw-t, és csak published körök F-jét látja)
+    -- Szerepkör megállapítása
     DECLARE @IsQM BIT = 0;
     DECLARE @IsOrg BIT = 0;
     IF @UserID IS NOT NULL
@@ -26,7 +22,6 @@ BEGIN
 
     IF @IsQM = 1 OR @IsOrg = 1 OR @UserID IS NULL
     BEGIN
-        -- QM/Org és Display (NULL UserID) látja a closed-et is
         INSERT INTO @StatusFilter (StatusID)
         SELECT id FROM [OP].[tblRoundStatus] WHERE Code = 'closed';
     END
@@ -36,14 +31,17 @@ BEGIN
         SELECT 
             t.id AS TeamId,
             k.Name,
-            ISNULL(SUM(rs.F), 0) + ISNULL(SUM(p.Points), 0) AS Points,
-            RANK() OVER (ORDER BY ISNULL(SUM(rs.F), 0) + ISNULL(SUM(p.Points), 0) DESC) AS Place
+            ISNULL(SUM(rs.F), 0) + ISNULL(SUM(p.Points), 0) + ISNULL(SUM(es.Points), 0) AS Points,
+            RANK() OVER (ORDER BY ISNULL(SUM(rs.F), 0) + ISNULL(SUM(p.Points), 0) + ISNULL(SUM(es.Points), 0) DESC) AS Place
         FROM [OP].[tblTeam] t
         JOIN [OP].[tblKabala] k ON t.KabalaID = k.id
         LEFT JOIN [OP].[tblRoundScore] rs ON rs.TeamID = t.id AND rs.RoundID IN (
             SELECT id FROM [OP].[tblRound] WHERE EventID = @EventID AND RoundStatusID IN (SELECT StatusID FROM @StatusFilter)
         )
         LEFT JOIN [OP].[tblPenalty] p ON p.TeamID = t.id AND p.ActiveFlg = 1
+        LEFT JOIN [OP].[tblExtraScore] es ON es.TeamID = t.id AND es.ExtraRunID IN (
+            SELECT id FROM [OP].[tblExtraRun] WHERE EventID = @EventID AND StatusCode = 'closed'
+        )
         WHERE t.EventID = @EventID AND t.ActiveFlg = 1
         GROUP BY t.id, k.Name
         ORDER BY Place ASC;
@@ -87,30 +85,38 @@ BEGIN
         GROUP BY t.id, k.Name
         ORDER BY Place ASC;
     END
+    ELSE IF @Board = 'games'
+    BEGIN
+        SELECT 
+            t.id AS TeamId,
+            k.Name,
+            ISNULL(SUM(es.Points), 0) AS Points,
+            RANK() OVER (ORDER BY ISNULL(SUM(es.Points), 0) DESC) AS Place
+        FROM [OP].[tblTeam] t
+        JOIN [OP].[tblKabala] k ON t.KabalaID = k.id
+        LEFT JOIN [OP].[tblExtraScore] es ON es.TeamID = t.id AND es.ExtraRunID IN (
+            SELECT id FROM [OP].[tblExtraRun] WHERE EventID = @EventID AND StatusCode = 'closed'
+        )
+        WHERE t.EventID = @EventID AND t.ActiveFlg = 1
+        GROUP BY t.id, k.Name
+        ORDER BY Place ASC;
+    END
     ELSE IF @Board = 'shadow'
     BEGIN
         SELECT 
             eu.id AS EventUserID,
-            CONCAT(u.FirstName, ' ', u.LastName) AS Name,
+            ISNULL(u.Nickname, LTRIM(RTRIM(CONCAT(u.FirstName, ' ', u.LastName)))) AS Name,
             ISNULL(SUM(ss.S), 0) AS Points,
             RANK() OVER (ORDER BY ISNULL(SUM(ss.S), 0) DESC) AS Place
         FROM [EJ].[tblEventUser] eu
         JOIN [EJ].[tblUser] u ON eu.UserID = u.id
-        JOIN [OP].[tblTeamMember] tm ON eu.id = tm.EventUserID AND tm.ActiveFlg = 1
-        JOIN [OP].[tblTeam] t ON tm.TeamID = t.id AND t.EventID = @EventID
         LEFT JOIN [OP].[tblShadowScore] ss ON ss.EventUserID = eu.id AND ss.EventQuestionID IN (
             SELECT eq.id FROM [OP].[tblEventQuestion] eq 
             JOIN [OP].[tblRound] r ON eq.RoundID = r.id 
             WHERE r.EventID = @EventID
         )
         WHERE eu.EventID = @EventID AND eu.ActiveFlg = 1
-        GROUP BY eu.id, u.FirstName, u.LastName
+        GROUP BY eu.id, u.Nickname, u.FirstName, u.LastName
         ORDER BY Place ASC;
     END
-    ELSE
-    BEGIN
-        -- Games board majd Extra futamoknál
-        SELECT 1 WHERE 1=0;
-    END
 END
-GO

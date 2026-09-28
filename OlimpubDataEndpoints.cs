@@ -166,6 +166,15 @@ namespace EventJoy.Api
                                             {
                                                 responseDict[datasetName] = datasetRows[0];
                                             }
+                                            else if (datasetName == "DisplayCast" && datasetRows.Count > 0)
+                                            {
+                                                var row = datasetRows[0];
+                                                if (row.ContainsKey("PayloadJson") && row["PayloadJson"] != null) {
+                                                    row["Payload"] = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(row["PayloadJson"]!.ToString()!);
+                                                    row.Remove("PayloadJson");
+                                                }
+                                                responseDict[datasetName] = row;
+                                            }
                                             else
                                             {
                                                 responseDict[datasetName] = datasetRows;

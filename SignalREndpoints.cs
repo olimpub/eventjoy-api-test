@@ -153,6 +153,24 @@ namespace EventJoy.Api
                         ConnectionId = payload.ConnectionId,
                         GroupName = group
                     });
+
+                    // Live gameplay backward comp and role mapping
+                    if (group.EndsWith("_contributor"))
+                    {
+                        actions.Add(new SignalRGroupAction(SignalRGroupActionType.Add)
+                        {
+                            ConnectionId = payload.ConnectionId,
+                            GroupName = group.Replace("_contributor", "_gamemaster")
+                        });
+                    }
+                    if (group.EndsWith("_organizer"))
+                    {
+                        actions.Add(new SignalRGroupAction(SignalRGroupActionType.Add)
+                        {
+                            ConnectionId = payload.ConnectionId,
+                            GroupName = group.Replace("_organizer", "_gamemaster")
+                        });
+                    }
                 }
             }
 
