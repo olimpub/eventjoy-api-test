@@ -1,12 +1,11 @@
-ALTER PROCEDURE [OP].[spGetEventData]
+﻿ALTER PROCEDURE [OP].[spGetEventData]
     @EventID BIGINT,
-    @UserID BIGINT = NULL,     -- Játékos vagy QM/Szervező
-    @IsDisplay BIT = 0         -- Kivető
+    @UserID BIGINT = NULL,
+    @IsDisplay BIT = 0
 AS
 BEGIN
     SET NOCOUNT ON;
 
-    -- Szerepkör megállapítása
     DECLARE @IsQM BIT = 0;
     DECLARE @IsOrg BIT = 0;
     DECLARE @IsPlayer BIT = 0;
@@ -109,7 +108,7 @@ BEGIN
     LEFT JOIN [OP].[tblEventQuestion] eq ON eq.StatusCode IN ('active', 'pending') AND eq.ActiveFlg = 1 
          AND eq.RoundID IN (SELECT id FROM [OP].[tblRound] WHERE EventID = @EventID AND ActiveFlg = 1 AND RoundStatusID = (SELECT id FROM [OP].[tblRoundStatus] WHERE Code = 'active'))
     WHERE es.EventID = @EventID
-    ORDER BY eq.StatusCode ASC; -- active előrébb van mint pending
+    ORDER BY eq.StatusCode ASC;
 
     -- Dataset: DisplayCast (1 sor)
     SELECT 'DisplayCast' AS DatasetName;
@@ -126,4 +125,21 @@ BEGIN
     WHERE p.EventID = @EventID AND p.ActiveFlg = 1
       AND (@IsQM = 1 OR @IsOrg = 1 OR @IsDisplay = 1);
 
+    -- Dataset: OpExtraPool
+    IF @IsQM = 1 OR @IsOrg = 1
+    BEGIN
+        SELECT 'OpExtraPool' AS DatasetName;
+        SELECT 
+            eeq.QuestionID,
+            eeq.ExtraGameId,
+            eeq.SortIndex,
+            qt.Code AS TypeCode,
+            q.Prompt,
+            topi.Name AS Topic
+        FROM [OP].[tblEventExtraQuestion] eeq
+        JOIN [OP].[tblQuestion] q ON eeq.QuestionID = q.id
+        JOIN [OP].[tblQuestionType] qt ON q.QuestionTypeID = qt.id
+        LEFT JOIN [OP].[tblTopic] topi ON q.TopicID = topi.id
+        WHERE eeq.EventID = @EventID AND eeq.ActiveFlg = 1;
+    END
 END
