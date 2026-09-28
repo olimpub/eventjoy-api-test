@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
@@ -48,9 +48,14 @@ namespace EventJoy.Api.Endpoints
                             }
                             else
                             {
-                                var notFoundRes = req.CreateResponse(System.Net.HttpStatusCode.NotFound);
-                                await notFoundRes.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = "Nincs aktuális Olimpub esemény." });
-                                return notFoundRes;
+                                // Nincs aktuális esemény -> mostantól ez 200 OK, hogy ne törje a frontend interceptorokat
+                                var res = req.CreateResponse(System.Net.HttpStatusCode.OK);
+                                await res.WriteAsJsonAsync(new { 
+                                    ReturnValue = 0, 
+                                    ReturnDescription = "Nincs aktuális Olimpub esemény.",
+                                    EventID = (int?)null
+                                });
+                                return res;
                             }
                         }
                     }
