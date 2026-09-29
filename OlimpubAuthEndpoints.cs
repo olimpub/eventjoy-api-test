@@ -43,7 +43,7 @@ namespace EventJoy.Api
                 string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
                 var data = JsonConvert.DeserializeObject<DeviceJoinDto>(requestBody);
 
-                if (string.IsNullOrEmpty(data?.DeviceId))
+                if (data == null || string.IsNullOrEmpty(data.DeviceId))
                 {
                     var badReq = req.CreateResponse(System.Net.HttpStatusCode.BadRequest);
                     await badReq.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = "DeviceId is required." });
