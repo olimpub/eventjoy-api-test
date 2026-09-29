@@ -18,10 +18,11 @@ BEGIN
         DECLARE @Nickname NVARCHAR(100) = LTRIM(RTRIM(JSON_VALUE(@Json, '$.Nickname')));
         
         DECLARE @Now DATETIMEOFFSET = SYSDATETIMEOFFSET();
+        DECLARE @IsRejoin BIT = 0;
 
         IF @Nickname IS NULL OR LEN(@Nickname) < 2
         BEGIN
-            THROW 50000, N'A becenév (Nickname) megadása kötelező (min 2 karakter).', 1;
+            SET @IsRejoin = 1;
         END
 
         -- 1. Cél esemény keresése
@@ -57,72 +58,94 @@ BEGIN
         FROM [EJ].[tblUserLoginIdentifier] 
         WHERE IdentifierTypeID = @LoginTypeID AND LOWER(IdentifierValueNormalized) = @DeviceId AND ActiveFlg = 1;
 
-        IF @UserID IS NULL
+        -- 3. EventUser keresése, ha megvan a User
+        IF @UserID IS NOT NULL
         BEGIN
-            -- 3. Új User létrehozása, ha nincs
-            INSERT INTO [EJ].[tblUser] (Nickname, FirstName, LastName, EmailAddress, PhoneNumber, StatusID, createdAt, updatedAt)
-            VALUES (@Nickname, NULL, NULL, NULL, NULL, 1, @Now, @Now);
-            
-            SET @UserID = SCOPE_IDENTITY();
-            SET @ActualNickname = @Nickname;
-
-            INSERT INTO [EJ].[tblUserLoginIdentifier] (UserID, IdentifierTypeID, IdentifierValueRaw, IdentifierValueNormalized, IsPrimary, IsVerified, ActiveFlg, createdAt, updatedAt)
-            VALUES (@UserID, @LoginTypeID, @DeviceId, @DeviceId, 0, 1, 1, @Now, @Now);
+            SELECT @EventUserID = id
+            FROM [EJ].[tblEventUser]
+            WHERE EventID = @EventID AND UserID = @UserID AND ActiveFlg = 1;
         END
-        ELSE
-        BEGIN
-            -- Ellenőrizzük, van-e már válasza ezen az eseményen
-            DECLARE @HasAnswer BIT = 0;
-            DECLARE @TempEUID BIGINT = (SELECT id FROM [EJ].[tblEventUser] WHERE EventID = @EventID AND UserID = @UserID AND ActiveFlg = 1);
-            IF @TempEUID IS NOT NULL
-            BEGIN
-                IF EXISTS (SELECT 1 FROM [OP].[tblAnswer] WHERE EventUserID = @TempEUID)
-                   OR EXISTS (SELECT 1 FROM [OP].[tblExtraAnswer] WHERE EventUserID = @TempEUID)
-                BEGIN
-                    SET @HasAnswer = 1;
-                END
-            END
 
-            IF @HasAnswer = 0
+        -- REJOIN LOGIC
+        IF @IsRejoin = 1
+        BEGIN
+            IF @UserID IS NULL OR @EventUserID IS NULL
             BEGIN
-                UPDATE [EJ].[tblUser]
-                SET Nickname = @Nickname, updatedAt = @Now
-                WHERE id = @UserID;
-                SET @ActualNickname = @Nickname;
+                COMMIT TRANSACTION;
+                SELECT 404 AS ReturnValue, N'Nincs belépés ezen az eszközön.' AS ReturnDescription, @EventID AS EventID, NULL AS EventUserID, NULL AS UserID, NULL AS Nickname;
+                RETURN;
             END
             ELSE
             BEGIN
-                -- Ha már van válasza, a tárolt nickname marad
                 SELECT @ActualNickname = Nickname FROM [EJ].[tblUser] WHERE id = @UserID;
-                IF @ActualNickname IS NULL SET @ActualNickname = @Nickname;
+                UPDATE [EJ].[tblEventUser] SET updatedAt = @Now WHERE id = @EventUserID;
             END
         END
-
-        -- 4. EventUser keresése vagy létrehozása
-        DECLARE @BelepettStatusID INT = (SELECT id FROM [EJ].[tblEventUserStatus] WHERE StatusName LIKE '%belépett%' OR StatusName LIKE '%belepett%');
-        IF @BelepettStatusID IS NULL SET @BelepettStatusID = 2; 
-        
-        DECLARE @PlayerRoleID INT = (SELECT id FROM [EJ].[tblEventRole] WHERE EventID = @EventID AND RoleID = 3 AND ActiveFlg = 1);
-        
-        SELECT @EventUserID = id
-        FROM [EJ].[tblEventUser]
-        WHERE EventID = @EventID AND UserID = @UserID AND ActiveFlg = 1;
-
-        IF @EventUserID IS NULL
-        BEGIN
-            INSERT INTO [EJ].[tblEventUser] (
-                EventID, UserID, EventRoleID, EventUserStatusID, EventUserUID, ActiveFlg, LastUpdatedUserID, createdAt, updatedAt
-            )
-            VALUES (
-                @EventID, @UserID, @PlayerRoleID, @BelepettStatusID, NEWID(), 1, @UserID, @Now, @Now
-            );
-            SET @EventUserID = SCOPE_IDENTITY();
-        END
+        -- JOIN LOGIC
         ELSE
         BEGIN
-            UPDATE [EJ].[tblEventUser]
-            SET EventUserStatusID = @BelepettStatusID, updatedAt = @Now, LastUpdatedUserID = @UserID
-            WHERE id = @EventUserID;
+            IF @UserID IS NULL
+            BEGIN
+                -- Új User létrehozása, ha nincs
+                INSERT INTO [EJ].[tblUser] (Nickname, FirstName, LastName, EmailAddress, PhoneNumber, StatusID, createdAt, updatedAt)
+                VALUES (@Nickname, NULL, NULL, NULL, NULL, 1, @Now, @Now);
+                
+                SET @UserID = SCOPE_IDENTITY();
+                SET @ActualNickname = @Nickname;
+
+                INSERT INTO [EJ].[tblUserLoginIdentifier] (UserID, IdentifierTypeID, IdentifierValueRaw, IdentifierValueNormalized, IsPrimary, IsVerified, ActiveFlg, createdAt, updatedAt)
+                VALUES (@UserID, @LoginTypeID, @DeviceId, @DeviceId, 0, 1, 1, @Now, @Now);
+            END
+            ELSE
+            BEGIN
+                -- Ellenőrizzük, van-e már válasza ezen az eseményen
+                DECLARE @HasAnswer BIT = 0;
+                IF @EventUserID IS NOT NULL
+                BEGIN
+                    IF EXISTS (SELECT 1 FROM [OP].[tblAnswer] WHERE EventUserID = @EventUserID)
+                       OR EXISTS (SELECT 1 FROM [OP].[tblExtraAnswer] WHERE EventUserID = @EventUserID)
+                    BEGIN
+                        SET @HasAnswer = 1;
+                    END
+                END
+
+                IF @HasAnswer = 0
+                BEGIN
+                    UPDATE [EJ].[tblUser]
+                    SET Nickname = @Nickname, updatedAt = @Now
+                    WHERE id = @UserID;
+                    SET @ActualNickname = @Nickname;
+                END
+                ELSE
+                BEGIN
+                    -- Ha már van válasza, a tárolt nickname marad
+                    SELECT @ActualNickname = Nickname FROM [EJ].[tblUser] WHERE id = @UserID;
+                    IF @ActualNickname IS NULL SET @ActualNickname = @Nickname;
+                END
+            END
+
+            -- EventUser létrehozása vagy frissítése
+            DECLARE @BelepettStatusID INT = (SELECT id FROM [EJ].[tblEventUserStatus] WHERE StatusName LIKE '%belépett%' OR StatusName LIKE '%belepett%');
+            IF @BelepettStatusID IS NULL SET @BelepettStatusID = 2; 
+            
+            DECLARE @PlayerRoleID INT = (SELECT id FROM [EJ].[tblEventRole] WHERE EventID = @EventID AND RoleID = 3 AND ActiveFlg = 1);
+            
+            IF @EventUserID IS NULL
+            BEGIN
+                INSERT INTO [EJ].[tblEventUser] (
+                    EventID, UserID, EventRoleID, EventUserStatusID, EventUserUID, ActiveFlg, LastUpdatedUserID, createdAt, updatedAt
+                )
+                VALUES (
+                    @EventID, @UserID, @PlayerRoleID, @BelepettStatusID, NEWID(), 1, @UserID, @Now, @Now
+                );
+                SET @EventUserID = SCOPE_IDENTITY();
+            END
+            ELSE
+            BEGIN
+                UPDATE [EJ].[tblEventUser]
+                SET EventUserStatusID = @BelepettStatusID, updatedAt = @Now, LastUpdatedUserID = @UserID
+                WHERE id = @EventUserID;
+            END
         END
 
         COMMIT TRANSACTION;
