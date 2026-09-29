@@ -2,7 +2,7 @@ SET QUOTED_IDENTIFIER ON;
 SET ANSI_NULLS ON;
 GO
 
-CREATE OR ALTER PROCEDURE [OP].[spChangeGame]
+ALTER PROCEDURE [OP].[spChangeGame]
     @EventID BIGINT,
     @UserID BIGINT,
     @Action NVARCHAR(100),
@@ -312,6 +312,43 @@ BEGIN
                 ('event_' + CAST(@EventID AS VARCHAR) + '_gamer', @Action, @LbdPayload),
                 ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', @Action, @LbdPayload),
                 ('event_' + CAST(@EventID AS VARCHAR) + '_contributor', @Action, @LbdPayload);
+        END
+        
+        ELSE IF @Action = N'Op.JoinTeam'
+        BEGIN
+            DECLARE @JT_TeamID INT = JSON_VALUE(@Json, '$.Payload.TeamID');
+            
+            DECLARE @JT_EventUserID BIGINT = (SELECT TOP 1 id FROM [EJ].[tblEventUser] WHERE EventID = @EventID AND UserID = @UserID AND ActiveFlg = 1);
+            IF @JT_EventUserID IS NULL
+            BEGIN
+                THROW 50040, N'Nem vagy belépve az eseményre.', 1;
+            END
+            
+            DECLARE @JT_MyTeamID INT = (SELECT TOP 1 TeamID FROM [OP].[tblTeamMember] WHERE EventUserID = @JT_EventUserID AND ActiveFlg = 1);
+            IF @JT_MyTeamID IS NOT NULL
+            BEGIN
+                THROW 50049, N'Már tagja vagy egy csapatnak.', 1;
+            END
+
+            IF NOT EXISTS (SELECT 1 FROM [OP].[tblTeam] WHERE id = @JT_TeamID AND EventID = @EventID AND ActiveFlg = 1)
+            BEGIN
+                THROW 50040, N'Érvénytelen csapat.', 1;
+            END
+            
+            DECLARE @MaxTeamSize INT = (SELECT MaxTeamSize FROM [OP].[tblEventSettings] WHERE EventID = @EventID);
+            DECLARE @CurrentTeamSize INT = (SELECT COUNT(*) FROM [OP].[tblTeamMember] WHERE TeamID = @JT_TeamID AND ActiveFlg = 1);
+            IF @MaxTeamSize IS NOT NULL AND @CurrentTeamSize >= @MaxTeamSize
+            BEGIN
+                THROW 50049, N'A csapat megtelt.', 1;
+            END
+            
+            INSERT INTO [OP].[tblTeamMember] (TeamID, EventUserID, ActiveFlg) VALUES (@JT_TeamID, @JT_EventUserID, 1);
+            
+            UPDATE [OP].[tblEventSettings] SET StateVersion = StateVersion + 1 WHERE EventID = @EventID;
+            
+            DECLARE @JTPing NVARCHAR(MAX) = (SELECT @Action AS Action, @EventID AS EventID FOR JSON PATH, WITHOUT_ARRAY_WRAPPER);
+            INSERT INTO @SignalRTargets (TargetGroup, EventName, CustomPayload) VALUES 
+                ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', @Action, @JTPing);
         END
         ELSE
         BEGIN
