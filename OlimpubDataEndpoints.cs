@@ -1,4 +1,4 @@
-using Azure.Storage.Blobs;
+﻿using Azure.Storage.Blobs;
 using Azure.Storage.Sas;
 using System;
 using System.IO;
@@ -345,7 +345,22 @@ namespace EventJoy.Api
                                     if (await reader.NextResultAsync())
                                     {
                                         var datasetRows = await ReadResultSetAsync(reader);
-                                        responseDict[datasetName] = datasetRows;
+                                          if (datasetName == "OpKabalas")
+                                          {
+                                              foreach (var row in datasetRows)
+                                              {
+                                                  if (row.ContainsKey("AssetsJson") && row["AssetsJson"] != null)
+                                                  {
+                                                      row["Assets"] = JsonSerializer.Deserialize<JsonElement>(row["AssetsJson"].ToString());
+                                                      row.Remove("AssetsJson");
+                                                  }
+                                                  else
+                                                  {
+                                                      row["Assets"] = new List<object>();
+                                                  }
+                                              }
+                                          }
+                                          responseDict[datasetName] = datasetRows;
                                     }
                                 }
                             } while (await reader.NextResultAsync());
