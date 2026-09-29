@@ -1,4 +1,4 @@
-﻿SET QUOTED_IDENTIFIER ON;
+SET QUOTED_IDENTIFIER ON;
 SET ANSI_NULLS ON;
 GO
 CREATE OR ALTER PROCEDURE [EJ].[spImportInvitations]
@@ -191,7 +191,7 @@ BEGIN
         UPDATE i
         SET ResultMsg = CONCAT(ISNULL(i.ResultMsg + '; ', ''), N'Már résztvevő')
         FROM #Invitations i
-        INNER JOIN [EJ].[tblUser] u ON LOWER(LTRIM(RTRIM(i.Email))) = LOWER(LTRIM(RTRIM(u.Email)))
+        INNER JOIN [EJ].[tblUser] u ON LOWER(LTRIM(RTRIM(i.Email))) = LOWER(LTRIM(RTRIM(u.EmailAddress)))
         INNER JOIN [EJ].[tblEventUser] eu ON eu.UserID = u.id AND eu.EventID = @EventID;
 
         -- 6. Hiba riportolás
