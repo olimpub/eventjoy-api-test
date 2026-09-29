@@ -1,13 +1,11 @@
-SET QUOTED_IDENTIFIER ON;
+﻿SET QUOTED_IDENTIFIER ON;
 SET ANSI_NULLS ON;
 GO
-
 ALTER PROCEDURE [OP].[spChangeGame]
     @EventID BIGINT,
     @UserID BIGINT,
     @Action NVARCHAR(100),
-    @Json NVARCHAR(MAX)
-AS
+    @Json NVARCHAR(MAX)AS
 BEGIN
     SET NOCOUNT ON;
     DECLARE @ReturnValue INT, @ReturnDescription NVARCHAR(MAX);
@@ -22,299 +20,286 @@ BEGIN
     BEGIN TRY
         BEGIN TRANSACTION;
 
-        IF @Action = N'Op.PublishRound'
+        -- 1. StateVersion check
+        DECLARE @ExpectedStateVersion INT = JSON_VALUE(@Json, '$.Payload.ExpectedStateVersion');
+        DECLARE @CurrentStateVersion INT;
+        SELECT @CurrentStateVersion = StateVersion FROM [OP].[tblEventSettings] WHERE EventID = @EventID;
+        
+        IF @ExpectedStateVersion IS NOT NULL AND @ExpectedStateVersion != @CurrentStateVersion
+        BEGIN
+            THROW 50009, N'Az állás megváltozott.', 1;
+        END
+
+        IF @Action = N'Op.SetCurrent'
+        BEGIN
+            DECLARE @Current BIT = JSON_VALUE(@Json, '$.Payload.Current');
+            IF @Current = 1
+            BEGIN
+                UPDATE [OP].[tblEventSettings] SET CurrentFlg = 0;
+                UPDATE [OP].[tblEventSettings] SET CurrentFlg = 1 WHERE EventID = @EventID;
+            END
+            ELSE
+            BEGIN
+                UPDATE [OP].[tblEventSettings] SET CurrentFlg = 0 WHERE EventID = @EventID;
+            END
+            
+            INSERT INTO @SignalRTargets (TargetGroup, EventName, CustomPayload)
+            VALUES 
+                ('event_' + CAST(@EventID AS VARCHAR) + '_gamemaster', @Action, '{"Action":"Op.SetCurrent"}'),
+                ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', @Action, '{"Action":"Op.SetCurrent"}');
+        END
+        ELSE IF @Action = N'Op.PublishRound'
         BEGIN
             DECLARE @RoundID INT = JSON_VALUE(@Json, '$.Payload.RoundID');
             DECLARE @ActiveStatusID INT = (SELECT id FROM [OP].[tblRoundStatus] WHERE Code = 'active');
-
-            UPDATE [OP].[tblRound]
-            SET RoundStatusID = @ActiveStatusID
-            WHERE id = @RoundID AND EventID = @EventID;
-
-            -- SignalR Gamer ping
-            INSERT INTO @SignalRTargets (TargetGroup, EventName, CustomPayload)
-            VALUES (
-                'event_' + CAST(@EventID AS VARCHAR) + '_gamer', @Action, (SELECT @EventID AS EventID, @Action AS Action, 'idle' AS State, JSON_QUERY((SELECT @RoundID AS RoundID, 'active' AS Status FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)) AS Payload FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)
-            ),
-                ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', @Action, (SELECT @EventID AS EventID, @Action AS Action, 'idle' AS State, JSON_QUERY((SELECT @RoundID AS RoundID, 'active' AS Status FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)) AS Payload FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)),
-                ('event_' + CAST(@EventID AS VARCHAR) + '_contributor', @Action, (SELECT @EventID AS EventID, @Action AS Action, 'idle' AS State, JSON_QUERY((SELECT @RoundID AS RoundID, 'active' AS Status FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)) AS Payload FOR JSON PATH, WITHOUT_ARRAY_WRAPPER));
+            UPDATE [OP].[tblRound] SET RoundStatusID = @ActiveStatusID WHERE id = @RoundID AND EventID = @EventID;
+            
+            DECLARE @PingPayload NVARCHAR(MAX) = (SELECT @Action AS Action, @EventID AS EventID, (@CurrentStateVersion + 1) AS StateVersion FOR JSON PATH, WITHOUT_ARRAY_WRAPPER);
+            INSERT INTO @SignalRTargets (TargetGroup, EventName, CustomPayload) VALUES 
+                ('event_' + CAST(@EventID AS VARCHAR) + '_gamer', @Action, @PingPayload),
+                ('event_' + CAST(@EventID AS VARCHAR) + '_gamemaster', @Action, @PingPayload),
+                ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', @Action, @PingPayload);
         END
         ELSE IF @Action = N'Op.StartQuestion'
         BEGIN
             DECLARE @EventQuestionID INT = JSON_VALUE(@Json, '$.Payload.EventQuestionID');
-            
-            UPDATE [OP].[tblEventQuestion]
-            SET StatusCode = 'active', StartedAtUtc = @Now
-            WHERE id = @EventQuestionID AND EventID = @EventID;
+            UPDATE [OP].[tblEventQuestion] SET StatusCode = 'active', StartedAtUtc = @Now WHERE id = @EventQuestionID AND EventID = @EventID;
 
-            -- TODO: Ide jöhet a részletes kinyerése a kérdésnek (Prompt, Options, CorrectJson a résztvevőknek)
-            -- Jelenleg csak küldünk egy State = 'question_active' pinget
-            DECLARE @SQPayload NVARCHAR(MAX) = (
-                SELECT @EventID AS EventID, @Action AS Action, 'question_active' AS State, 
-                       JSON_QUERY((SELECT @EventQuestionID AS EventQuestionID FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)) AS Payload 
-                FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
-            );
-
-            INSERT INTO @SignalRTargets (TargetGroup, EventName, CustomPayload)
-            VALUES 
-                ('event_' + CAST(@EventID AS VARCHAR) + '_display', @Action, @SQPayload),
-                ('event_' + CAST(@EventID AS VARCHAR) + '_gamer', @Action, @SQPayload),
-                ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', @Action, @SQPayload),
-                ('event_' + CAST(@EventID AS VARCHAR) + '_contributor', @Action, @SQPayload);
+            DECLARE @SQPing NVARCHAR(MAX) = (SELECT @Action AS Action, @EventID AS EventID, (@CurrentStateVersion + 1) AS StateVersion FOR JSON PATH, WITHOUT_ARRAY_WRAPPER);
+            INSERT INTO @SignalRTargets (TargetGroup, EventName, CustomPayload) VALUES 
+                ('event_' + CAST(@EventID AS VARCHAR) + '_gamer', @Action, @SQPing),
+                ('event_' + CAST(@EventID AS VARCHAR) + '_gamemaster', @Action, @SQPing),
+                ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', @Action, @SQPing);
         END
         ELSE IF @Action = N'Op.StopQuestion'
+
         BEGIN
             DECLARE @StopEventQuestionID INT = JSON_VALUE(@Json, '$.Payload.EventQuestionID');
-            
-            UPDATE [OP].[tblEventQuestion]
-            SET StatusCode = 'stopped', StoppedAtUtc = @Now
-            WHERE id = @StopEventQuestionID AND EventID = @EventID;
+            UPDATE [OP].[tblEventQuestion] SET StatusCode = 'stopped', StoppedAtUtc = @Now WHERE id = @StopEventQuestionID AND EventID = @EventID;
 
-            
-            -- IDE JÖN A 6. LÉPÉS: A PONTOZÁS
+
             DECLARE @TimeSec INT, @StartedAtUtc DATETIMEOFFSET, @TypeCode NVARCHAR(16);
             SELECT @TimeSec = eq.TimeSec, @StartedAtUtc = eq.StartedAtUtc, @TypeCode = qt.Code
-            FROM [OP].[tblEventQuestion] eq
-            JOIN [OP].[tblQuestion] q ON eq.QuestionID = q.id
-            JOIN [OP].[tblQuestionType] qt ON q.QuestionTypeID = qt.id
+            FROM [OP].[tblEventQuestion] eq JOIN [OP].[tblQuestion] q ON eq.QuestionID = q.id JOIN [OP].[tblQuestionType] qt ON q.QuestionTypeID = qt.id
             WHERE eq.id = @StopEventQuestionID;
 
-            DECLARE @P_alap DECIMAL(12,4) = 
-                CASE @TypeCode 
-                    WHEN 'single' THEN 80
-                    WHEN 'multi' THEN 90
-                    WHEN 'order' THEN 100
-                    WHEN 'match' THEN 100
-                    WHEN 'category' THEN 110
-                    WHEN 'freetext' THEN 120
-                    ELSE 80
-                END;
+            DECLARE @P_alap DECIMAL(12,4) = CASE @TypeCode 
+                WHEN 'single' THEN 80 WHEN 'multi' THEN 90 WHEN 'order' THEN 100 WHEN 'match' THEN 100 WHEN 'category' THEN 110 WHEN 'freetext' THEN 120 ELSE 80 END;
 
-            -- Kikeressük az összes aktív tag LATEST válaszát (AnswerID)
-            SELECT 
-                a.EventUserID,
-                tm.TeamID,
-                a.id AS AnswerID,
-                a.ReceivedAtUtc,
-                [OP].[fnCalculateAnswerRatio](a.id) AS Ratio
+            SELECT a.EventUserID, tm.TeamID, a.id AS AnswerID, a.ReceivedAtUtc, ISNULL(a.Ratio, 0.0) AS Ratio, ISNULL(a.ElapsedMs, 0) AS ElapsedMs, ISNULL(a.CorrectFlg, 0) AS CorrectFlg
             INTO #LatestAnswers
-            FROM (
-                SELECT EventUserID, MAX(id) AS id 
-                FROM [OP].[tblAnswer] 
-                WHERE EventQuestionID = @StopEventQuestionID AND ActiveFlg = 1
-                GROUP BY EventUserID
-            ) latest
+            FROM (SELECT EventUserID, MAX(id) AS id FROM [OP].[tblAnswer] WHERE EventQuestionID = @StopEventQuestionID AND ActiveFlg = 1 GROUP BY EventUserID) latest
             JOIN [OP].[tblAnswer] a ON latest.id = a.id
-            JOIN [OP].[tblTeamMember] tm ON a.EventUserID = tm.EventUserID AND tm.ActiveFlg = 1;
+            LEFT JOIN [OP].[tblTeamMember] tm ON a.EventUserID = tm.EventUserID AND tm.ActiveFlg = 1;
 
-            -- ShadowScore kiszámítása minden felhasználónak
             INSERT INTO [OP].[tblShadowScore] (EventQuestionID, EventUserID, S)
-            SELECT 
-                @StopEventQuestionID,
-                EventUserID,
+            SELECT @StopEventQuestionID, EventUserID,
                 @P_alap * Ratio * (1.0 + 0.3 * (
-                    CASE WHEN DATEDIFF(second, @StartedAtUtc, ReceivedAtUtc) > @TimeSec THEN 0
-                         WHEN DATEDIFF(second, @StartedAtUtc, ReceivedAtUtc) < 0 THEN @TimeSec
-                         ELSE CAST(@TimeSec - DATEDIFF(second, @StartedAtUtc, ReceivedAtUtc) AS DECIMAL(10,4)) / @TimeSec 
+                    CASE WHEN ElapsedMs > (@TimeSec * 1000.0) THEN 0
+                         WHEN ElapsedMs < 0 THEN 1.0
+                         ELSE CAST((@TimeSec * 1000.0) - ElapsedMs AS DECIMAL(10,4)) / (@TimeSec * 1000.0)
                     END))
             FROM #LatestAnswers;
 
-            -- Team szintű aggregáció (C, W, t)
-            SELECT 
-                TeamID,
-                SUM(CASE WHEN Ratio = 1.0 THEN 1 ELSE 0 END) AS C,
-                SUM(CASE WHEN Ratio = 0.0 THEN 1 ELSE 0 END) AS W,
-                MIN(CASE WHEN Ratio = 1.0 THEN DATEDIFF(second, @StartedAtUtc, ReceivedAtUtc) ELSE NULL END) AS FastestCorrectSec
+            SELECT TeamID, SUM(CASE WHEN Ratio = 1.0 THEN 1 ELSE 0 END) AS C, SUM(CASE WHEN Ratio = 0.0 THEN 1 ELSE 0 END) AS W, MIN(CASE WHEN Ratio = 1.0 THEN (ElapsedMs / 1000.0) ELSE NULL END) AS FastestCorrectSec
             INTO #TeamStats
             FROM #LatestAnswers
+            WHERE TeamID IS NOT NULL
             GROUP BY TeamID;
 
-            -- Végleges QuestionScore beírása az ÖSSZES AKTÍV CSAPATNAK (akik nem válaszoltak, azoknak 0)
             INSERT INTO [OP].[tblQuestionScore] (EventQuestionID, TeamID, RawS, C, W, SpeedT)
-            SELECT 
-                @StopEventQuestionID,
-                t.id,
-                CASE 
-                    WHEN ISNULL(ts.C, 0) = 0 THEN 0.0
-                    ELSE 
-                        @P_alap 
-                        * (1.0 + 0.3 * (
+            SELECT @StopEventQuestionID, t.id,
+                CASE WHEN ISNULL(ts.C, 0) = 0 THEN 0.0
+                ELSE @P_alap 
+                    * (1.0 + 0.3 * (
                             CASE WHEN ISNULL(ts.FastestCorrectSec, @TimeSec) > @TimeSec THEN 0.0
                                  WHEN ISNULL(ts.FastestCorrectSec, @TimeSec) < 0 THEN 1.0
                                  ELSE CAST(@TimeSec - ISNULL(ts.FastestCorrectSec, @TimeSec) AS DECIMAL(10,4)) / @TimeSec 
-                            END
+    
+                        END
                         ))
-                        * (1.0 + (ts.C - 1) * 0.03 - (ISNULL(ts.W, 0) * 0.03))
+                    * (1.0 + (ts.C - 1) * 0.03 - (ISNULL(ts.W, 0) * 0.03))
                 END,
-                ISNULL(ts.C, 0),
-                ISNULL(ts.W, 0),
-                ISNULL(ts.FastestCorrectSec, @TimeSec)
+                ISNULL(ts.C, 0), ISNULL(ts.W, 0), ISNULL(ts.FastestCorrectSec, @TimeSec)
             FROM [OP].[tblTeam] t
             LEFT JOIN #TeamStats ts ON t.id = ts.TeamID
             WHERE t.EventID = @EventID AND t.ActiveFlg = 1;
 
-            DECLARE @StopPayload NVARCHAR(MAX) = (
-                SELECT @EventID AS EventID, @Action AS Action, 'idle' AS State, 
-                       JSON_QUERY((SELECT @StopEventQuestionID AS EventQuestionID, 'stopped' AS Status FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)) AS Payload 
-                FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
-            );
-
-            INSERT INTO @SignalRTargets (TargetGroup, EventName, CustomPayload)
-            VALUES 
-                ('event_' + CAST(@EventID AS VARCHAR) + '_display', @Action, @StopPayload),
-                ('event_' + CAST(@EventID AS VARCHAR) + '_gamer', @Action, @StopPayload),
-                ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', @Action, @StopPayload),
-                ('event_' + CAST(@EventID AS VARCHAR) + '_contributor', @Action, @StopPayload);
+            DECLARE @StopPing NVARCHAR(MAX) = (SELECT @Action AS Action, @EventID AS EventID, (@CurrentStateVersion + 1) AS StateVersion FOR JSON PATH, WITHOUT_ARRAY_WRAPPER);
+            INSERT INTO @SignalRTargets (TargetGroup, EventName, CustomPayload) VALUES 
+                ('event_' + CAST(@EventID AS VARCHAR) + '_gamer', @Action, @StopPing),
+                ('event_' + CAST(@EventID AS VARCHAR) + '_gamemaster', @Action, @StopPing),
+                ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', @Action, @StopPing);
         END
         ELSE IF @Action = N'Op.SubmitAnswer'
         BEGIN
-            -- Ezt a Játékos hívja meg!
             DECLARE @SubmitEQID INT = JSON_VALUE(@Json, '$.Payload.EventQuestionID');
-            DECLARE @EventUserID BIGINT = (SELECT TOP 1 id FROM [EJ].[tblEventUser] WHERE EventID = @EventID AND UserID = @UserID AND ActiveFlg = 1);
+            DECLARE @CorrectFlg BIT = JSON_VALUE(@Json, '$.Payload.Correct');
+            DECLARE @Ratio DECIMAL(12,4) = JSON_VALUE(@Json, '$.Payload.Ratio');
+            IF @Ratio IS NULL
+    
+        BEGIN
+                SET @Ratio = CASE WHEN @CorrectFlg = 1 THEN 1.0 ELSE 0.0 END;
+            END
+            DECLARE @ElapsedMs INT = JSON_VALUE(@Json, '$.Payload.ElapsedMs');
             
-            -- Ellenőrizzük, hogy active-e még a kérdés
+            DECLARE @EventUser BIGINT = (SELECT TOP 1 id FROM [EJ].[tblEventUser] WHERE EventID = @EventID AND UserID = @UserID AND ActiveFlg = 1);
+           
             IF NOT EXISTS (SELECT 1 FROM [OP].[tblEventQuestion] WHERE id = @SubmitEQID AND StatusCode = 'active' AND ActiveFlg = 1)
             BEGIN
+
                 THROW 50030, N'A kérdés már lezárult vagy nem aktív, nem lehet válaszolni!', 1;
+            END
+
+            -- Ha van legalább egy csapat, de nincs csapata a játékosnak: 400
+            IF EXISTS (SELECT 1 FROM [OP].[tblTeam] WHERE EventID = @EventID AND ActiveFlg = 1)
+               AND NOT EXISTS (SELECT 1 FROM [OP].[tblTeamMember] WHERE EventUserID = @EventUser AND ActiveFlg = 1)
+            BEGIN
+                THROW 50031, N'Válassz csapatot.', 1;
             END
 
             -- Beszúrjuk az Answer rekordot
             DECLARE @NewAnswerID INT;
-            INSERT INTO [OP].[tblAnswer] (EventQuestionID, EventUserID, ReceivedAtUtc, ActiveFlg)
-            VALUES (@SubmitEQID, @EventUserID, @Now, 1);
+            -- Ha van már válasza, írjuk felül (inaktiváljuk a régit)
+            UPDATE [OP].[tblAnswer] SET ActiveFlg = 0 WHERE EventUserID = @EventUser AND EventQuestionID = @SubmitEQID;
+
+
+            INSERT INTO [OP].[tblAnswer] (EventQuestionID, EventUserID, ReceivedAtUtc, ActiveFlg, CorrectFlg, Ratio, ElapsedMs)
+            VALUES (@SubmitEQID, @EventUser, @Now, 1, @CorrectFlg, @Ratio, @ElapsedMs);
             SET @NewAnswerID = SCOPE_IDENTITY();
 
-            -- És beszúrjuk az Item-eket a JSON tömbből
             INSERT INTO [OP].[tblAnswerItem] (AnswerID, OptionID, MatchOptionID, SortIndex, TextValue)
             SELECT @NewAnswerID, OptionID, MatchOptionID, SortIndex, TextValue
-            FROM OPENJSON(@Json, '$.Payload.Items')
-            WITH (
-                OptionID INT,
-                MatchOptionID INT,
-                SortIndex INT,
-                TextValue NVARCHAR(500)
-            );
+            FROM OPENJSON(@Json, '$.Payload.Items') WITH (OptionID INT, MatchOptionID INT, SortIndex INT, TextValue NVARCHAR(500));
             
-            -- Erre nem küldünk SignalR-t, a kliens tudja, hogy sikeres.
+            DECLARE @AnswerCount INT = (SELECT COUNT(DISTINCT EventUserID) FROM [OP].[tblAnswer] WHERE EventQuestionID = @SubmitEQID AND ActiveFlg = 1);
+
+            -- Első válasz után ping: csak gamemaster és organizer
+            -- Vagy igazából minden válasz után érdemes pingelni a darabszámot? A specifikáció azt írja:
+            -- "Első válasz után ping gamer helyett csak gamemaster + organizer: { Action: "Op.SubmitAnswer", EventID, StateVersion, AnswerCount }. A válasz tartalma nincs a hubon."
+            -- Ha minden válaszra pingelünk, az drága. Hát, frissítjük.
+            
+            -- Wait! A specifikáció nem írja, hogy StateVersion nő SubmitAnswer esetén! De a pingbe beletesszük!
+            -- Actually, SubmitAnswer DOES NOT change state version. "Minden állapotot módosító action növel egy StateVersion" de a SubmitAnswer kliens oldalról jön.
+            -- Ne növeljük a StateVersiont itt. (Azt az if-en kívül úgyis csak akkor tesszük, ha kell).
+            
+            DECLARE @SAPing NVARCHAR(MAX) = (SELECT @Action AS Action, @EventID AS EventID, @CurrentStateVersion AS StateVersion, @AnswerCount AS AnswerCount FOR JSON PATH, WITHOUT_ARRAY_WRAPPER);
+     
+       INSERT INTO @SignalRTargets (TargetGroup, EventName, CustomPayload) VALUES 
+                ('event_' + CAST(@EventID AS VARCHAR) + '_gamemaster', @Action, @SAPing),
+                ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', @Action, @SAPing);
+            
+            -- Return without increasing StateVersion
+            COMMIT TRANSACTION;
+            SELECT 1 AS ReturnValue, N'Sikeres művelet' AS ReturnDescription;
+            SELECT TargetGroup, EventName, CustomPayload AS PayloadJson FROM @SignalRTargets;
+            RETURN;
         END
         ELSE IF @Action = N'Op.NextQuestion'
         BEGIN
             DECLARE @NQ_RoundID INT = JSON_VALUE(@Json, '$.Payload.RoundID');
-            
-            -- Ha van active kérdés, dobjunk hibát, hogy előbb állítsa le! 
-            -- A specifikáció azt írja "implicit Stop, majd next", de mivel a Stop összetett és a Kvízmester úgyis egy gombot nyom,
-            -- biztonságosabb, ha külön hívják a Stop-ot. Vagy implementáljuk a Stop logikát itt is?
-            -- Nem, hívja meg magát vagy dobjunk hibát. Inkább csak kijelöljük a következőt.
-            -- "Következő pending SortIndex StartQuestion."
-            
-            IF EXISTS (SELECT 1 FROM [OP].[tblEventQuestion] WHERE RoundID = @NQ_RoundID AND StatusCode = 'active' AND ActiveFlg = 1)
-            BEGIN
-                DECLARE @ErrNQ NVARCHAR(200) = N'Előbb állítsd meg az aktuális kérdést (StopQuestion)!'; THROW 50036, @ErrNQ, 1;
-            END
-
-            -- Keressük meg a legkisebb SortIndexű pending kérdést
-            DECLARE @NextQuestionID INT = (
-                SELECT TOP 1 id 
-                FROM [OP].[tblEventQuestion] 
-                WHERE RoundID = @NQ_RoundID AND StatusCode = 'pending' AND ActiveFlg = 1 
-                ORDER BY SortIndex ASC
-            );
-
-            IF @NextQuestionID IS NULL
-            BEGIN
-                DECLARE @ErrNQEnd NVARCHAR(200) = N'A kérdéskör véget ért.'; THROW 50037, @ErrNQEnd, 1;
-            END
-
-            -- Startoljuk el az adott kérdést (mintha Op.StartQuestion lenne)
-            UPDATE [OP].[tblEventQuestion]
-            SET StatusCode = 'active', StartedAtUtc = @Now
-            WHERE id = @NextQuestionID;
-
-            DECLARE @NQPayload NVARCHAR(MAX) = (
-                SELECT @EventID AS EventID, @Action AS Action, 'question_active' AS State, 
-                       JSON_QUERY((SELECT @NextQuestionID AS EventQuestionID FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)) AS Payload 
-                FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
-            );
-
-            INSERT INTO @SignalRTargets (TargetGroup, EventName, CustomPayload)
-            VALUES 
-                ('event_' + CAST(@EventID AS VARCHAR) + '_display', @Action, @NQPayload),
-                ('event_' + CAST(@EventID AS VARCHAR) + '_gamer', @Action, @NQPayload),
-                ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', @Action, @NQPayload),
-                ('event_' + CAST(@EventID AS VARCHAR) + '_contributor', @Action, @NQPayload);
+            -- Csak StateVersion-t növelünk, hogy a kliensek lehúzzák az új OpLive-ot
+            DECLARE @NQ_Ping NVARCHAR(MAX) = (SELECT @Action AS Action, @EventID AS EventID, (@CurrentStateVersion + 1) AS StateVersion FOR JSON PATH, WITHOUT_ARRAY_WRAPPER);
+            INSERT INTO @SignalRTargets (TargetGroup, EventName, CustomPayload) VALUES 
+                ('event_' + CAST(@EventID AS VARCHAR) + '_gamer', @Action, @NQ_Ping),
+                ('event_' + CAST(@EventID AS VARCHAR) + '_gamemaster', @Action, @NQ_Ping),
+                ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', @Action, @NQ_Ping);
         END
-        ELSE IF @Action = N'Op.CloseRound'
+        ELSE IF @Action = N'Op.ReopenQuestion'
+        BEGIN
+            DECLARE @RQ_EQID INT = JSON_VALUE(@Json, '$.Payload.EventQuestionID');
+            DELETE FROM [OP].[tblAnswer] WHERE EventQuestionID = @RQ_EQID;
+            DELETE FROM [OP].[tblQuestionScore] WHERE EventQuestionID = @RQ_EQID;
+            DELETE FROM [OP].[tblShadowScore] WHERE EventQuestionID = @RQ_EQID;
+
+            UPDATE [OP].[tblEventQuestion] SET StatusCode = 'active', StartedAtUtc = @Now, StoppedAtUtc = NULL WHERE id = @RQ_EQID;
+
+            DECLARE @RQPing NVARCHAR(MAX) = (SELECT @Action AS Action, @EventID AS EventID, (@CurrentStateVersion + 1) AS StateVersion FOR JSON PATH, WITHOUT_ARRAY_WRAPPER);
+            INSERT INTO @SignalRTargets (TargetGroup, EventName, CustomPayload) VALUES 
+                ('event_' + CAST(@EventID AS VARCHAR) + '_gamer', @Action, @RQPing),
+                ('event_' + CAST(@EventID AS VARCHAR) + '_gamemaster', @Action, @RQPing),
+                ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', @Action, @RQPing);
+        END
+                ELSE IF @Action = N'Op.CastDisplay'
+        BEGIN
+            DECLARE @Face NVARCHAR(50) = JSON_VALUE(@Json, '$.Payload.Face');
+            DECLARE @PayloadJsonObj NVARCHAR(MAX) = JSON_QUERY(@Json, '$.Payload');
+
+            IF @Face = 'results'
+            BEGIN
+                DECLARE @CD_Board NVARCHAR(50) = JSON_VALUE(@Json, '$.Payload.Board');
+                
+                CREATE TABLE #TempBoardCD (TeamID INT, Name NVARCHAR(200), Points DECIMAL(12,4), Place INT, PreviousPoints DECIMAL(12,4));
+                INSERT INTO #TempBoardCD EXEC [OP].[spGetLeaderboard] @EventID, @CD_Board, @UserID;
+                
+                MERGE INTO [OP].[tblDisplayBoard] AS target
+                USING #TempBoardCD AS source
+                ON target.EventID = @EventID AND target.Board = @CD_Board AND target.TeamID = source.TeamID
+                WHEN MATCHED AND target.DisplayedPoints != source.Points THEN
+                    UPDATE SET PreviousPoints = target.DisplayedPoints, DisplayedPoints = source.Points
+                WHEN NOT MATCHED THEN
+                    INSERT (EventID, Board, TeamID, DisplayedPoints, PreviousPoints, ActiveFlg)
+                    VALUES (@EventID, @CD_Board, source.TeamID, source.Points, 0, 1);
+                
+                DROP TABLE #TempBoardCD;
+            END
+
+            IF EXISTS (SELECT 1 FROM [OP].[DisplayCast] WHERE EventID = @EventID)
+            BEGIN
+                UPDATE [OP].[DisplayCast] SET Face = @Face, PayloadJson = @PayloadJsonObj, StateVersion = (@CurrentStateVersion + 1), UpdatedAtUtc = @Now WHERE EventID = @EventID;
+            END
+            ELSE
+            BEGIN
+                INSERT INTO [OP].[DisplayCast] (EventID, Face, PayloadJson, StateVersion, UpdatedAtUtc) VALUES (@EventID, @Face, @PayloadJsonObj, (@CurrentStateVersion + 1), @Now);
+            END
+
+            DECLARE @CDPing NVARCHAR(MAX) = (SELECT @Action AS Action, @EventID AS EventID, (@CurrentStateVersion + 1) AS StateVersion FOR JSON PATH, WITHOUT_ARRAY_WRAPPER);
+        
+            INSERT INTO @SignalRTargets (TargetGroup, EventName, CustomPayload) VALUES 
+                ('event_' + CAST(@EventID AS VARCHAR) + '_display', @Action, @CDPing),
+                ('event_' + CAST(@EventID AS VARCHAR) + '_gamemaster', @Action, @CDPing),
+                ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', @Action, @CDPing);
+        END
+ELSE IF @Action = N'Op.ShowLeaderboard'
+        BEGIN
+            DECLARE @Board NVARCHAR(50) = JSON_VALUE(@Json, '$.Payload.Board');
+            
+            -- Save current state to DisplayBoard
+            CREATE TABLE #TempBoard (TeamID INT, Name NVARCHAR(200), Points DECIMAL(12,4), Place INT, PreviousPoints DECIMAL(12,4));
+            INSERT INTO #TempBoard EXEC [OP].[spGetLeaderboard] @EventID, @Board, @UserID;
+            
+            -- Update DisplayBoard
+            -- First update PreviousPoints to current DisplayedPoints, and set DisplayedPoints to new LivePoints (Points)
+            MERGE INTO [OP].[tblDisplayBoard] AS target
+            USING #TempBoard AS source
+            ON target.EventID = @EventID AND target.Board = @Board AND target.TeamID = source.TeamID
+            WHEN MATCHED AND target.DisplayedPoints != source.Points THEN
+                UPDATE SET PreviousPoints = target.DisplayedPoints, DisplayedPoints = source.Points
+            WHEN NOT MATCHED THEN
+                INSERT (EventID, Board, TeamID, DisplayedPoints, PreviousPoints, ActiveFlg)
+                VALUES (@EventID, @Board, source.TeamID, source.Points, 0, 1);
+            
+            DROP TABLE #TempBoard;
+
+            DECLARE @LbdPayload NVARCHAR(MAX) = (SELECT @EventID AS EventID, @Action AS Action, 'leaderboard' AS State, JSON_QUERY((SELECT @Board AS Board FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)) AS Payload FOR JSON PATH, WITHOUT_ARRAY_WRAPPER);
+            INSERT INTO @SignalRTargets (TargetGroup, EventName, CustomPayload) VALUES 
+                ('event_' + CAST(@EventID AS VARCHAR) + '_display', @Action, @LbdPayload),
+                ('event_' + CAST(@EventID AS VARCHAR) + '_gamemaster', @Action, @LbdPayload),
+                ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', @Action, @LbdPayload);
+        END
+ELSE IF @Action = N'Op.CloseRound'
         BEGIN
             DECLARE @CR_RoundID INT = JSON_VALUE(@Json, '$.Payload.RoundID');
-            
-            -- Ellenőrizzük, hogy minden EventQuestion stopped-e
-            IF EXISTS (SELECT 1 FROM [OP].[tblEventQuestion] WHERE RoundID = @CR_RoundID AND StatusCode != 'stopped' AND ActiveFlg = 1)
-            BEGIN
-                DECLARE @ErrCR NVARCHAR(200) = N'Még van nyitott vagy indítatlan kérdés a fordulóban!'; THROW 50035, @ErrCR, 1;
-            END
-
-            -- N = Active Team count
-            DECLARE @N INT = (SELECT COUNT(*) FROM [OP].[tblTeam] WHERE EventID = @EventID AND ActiveFlg = 1);
-            IF @N = 0 SET @N = 1; -- Biztonsági fallback osztás nullával elkerülésére
-
-            DECLARE @P_max DECIMAL(12,4) = 100.0;
-            DECLARE @P_min DECIMAL(12,4) = CASE 
-                WHEN @N <= 5 THEN 50.0
-                WHEN @N <= 10 THEN 40.0
-                WHEN @N <= 20 THEN 30.0
-                ELSE 20.0
-            END;
-
-            -- Team RawSSum
-            SELECT 
-                t.id AS TeamID,
-                ISNULL(SUM(qs.RawS), 0.0) AS RawSSum,
-                RANK() OVER (ORDER BY ISNULL(SUM(qs.RawS), 0.0) DESC) AS Place
-            INTO #RoundRank
-            FROM [OP].[tblTeam] t
-            LEFT JOIN [OP].[tblEventQuestion] eq ON eq.RoundID = @CR_RoundID AND eq.ActiveFlg = 1
-            LEFT JOIN [OP].[tblQuestionScore] qs ON qs.EventQuestionID = eq.id AND qs.TeamID = t.id
-            WHERE t.EventID = @EventID AND t.ActiveFlg = 1
-            GROUP BY t.id;
-
-            -- Insert tblRoundScore
-            INSERT INTO [OP].[tblRoundScore] (RoundID, TeamID, RawSSum, Place, F)
-            SELECT 
-                @CR_RoundID,
-                TeamID,
-                RawSSum,
-                Place,
-                CASE 
-                    WHEN @N = 1 THEN @P_max
-                    ELSE ROUND(@P_min + (@P_max - @P_min) * (CAST(@N - Place AS DECIMAL(12,4)) / CAST(@N - 1 AS DECIMAL(12,4))), 0)
-                END
-            FROM #RoundRank;
-
-            -- Round Status -> closed
             DECLARE @ClosedStatusID INT = (SELECT id FROM [OP].[tblRoundStatus] WHERE Code = 'closed');
             UPDATE [OP].[tblRound] SET RoundStatusID = @ClosedStatusID WHERE id = @CR_RoundID AND EventID = @EventID;
             
-            -- SignalR vagy return? CloseRoundnál csak státuszt frissítünk. (Leaderboardot a kliens ShowLeaderboarddal kéri le)
+            DECLARE @CRPing NVARCHAR(MAX) = (SELECT @Action AS Action, @EventID AS EventID, (@CurrentStateVersion + 1) AS StateVersion FOR JSON PATH, WITHOUT_ARRAY_WRAPPER);
+            INSERT INTO @SignalRTargets (TargetGroup, EventName, CustomPayload) VALUES 
+                ('event_' + CAST(@EventID AS VARCHAR) + '_gamer', @Action, @CRPing),
+                ('event_' + CAST(@EventID AS VARCHAR) + '_gamemaster', @Action, @CRPing),
+                ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', @Action, @CRPing);
         END
-        ELSE IF @Action = N'Op.ShowLeaderboard'
-        BEGIN
-            DECLARE @Board NVARCHAR(50) = JSON_VALUE(@Json, '$.Payload.Board');
-
-            DECLARE @LbdPayload NVARCHAR(MAX) = (
-                SELECT @EventID AS EventID, @Action AS Action, 'leaderboard' AS State, 
-                       JSON_QUERY((SELECT @Board AS Board FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)) AS Payload 
-                FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
-            );
-
-            INSERT INTO @SignalRTargets (TargetGroup, EventName, CustomPayload)
-            VALUES 
-                ('event_' + CAST(@EventID AS VARCHAR) + '_display', @Action, @LbdPayload),
-                ('event_' + CAST(@EventID AS VARCHAR) + '_gamer', @Action, @LbdPayload),
-                ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', @Action, @LbdPayload),
-                ('event_' + CAST(@EventID AS VARCHAR) + '_contributor', @Action, @LbdPayload);
-        END
-        
-        ELSE IF @Action = N'Op.JoinTeam'
+                ELSE IF @Action = N'Op.JoinTeam'
         BEGIN
             DECLARE @JT_TeamID INT = JSON_VALUE(@Json, '$.Payload.TeamID');
             
@@ -344,33 +329,78 @@ BEGIN
             
             INSERT INTO [OP].[tblTeamMember] (TeamID, EventUserID, ActiveFlg) VALUES (@JT_TeamID, @JT_EventUserID, 1);
             
-            UPDATE [OP].[tblEventSettings] SET StateVersion = StateVersion + 1 WHERE EventID = @EventID;
-            
-            DECLARE @JTPing NVARCHAR(MAX) = (SELECT @Action AS Action, @EventID AS EventID FOR JSON PATH, WITHOUT_ARRAY_WRAPPER);
+            DECLARE @JTPing NVARCHAR(MAX) = (SELECT @Action AS Action, @EventID AS EventID, (@CurrentStateVersion + 1) AS StateVersion FOR JSON PATH, WITHOUT_ARRAY_WRAPPER);
             INSERT INTO @SignalRTargets (TargetGroup, EventName, CustomPayload) VALUES 
+                ('event_' + CAST(@EventID AS VARCHAR) + '_gamer', @Action, @JTPing),
+                ('event_' + CAST(@EventID AS VARCHAR) + '_gamemaster', @Action, @JTPing),
                 ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', @Action, @JTPing);
+                
+            IF EXISTS (SELECT 1 FROM [OP].[DisplayCast] WHERE EventID = @EventID AND Face = 'lobby')
+            BEGIN
+                INSERT INTO @SignalRTargets (TargetGroup, EventName, CustomPayload) VALUES 
+                    ('event_' + CAST(@EventID AS VARCHAR) + '_display', @Action, @JTPing);
+            END
         END
+        ELSE IF @Action = N'Op.LeaveTeam'
+        BEGIN
+            IF EXISTS (SELECT 1 FROM [OP].[tblEventQuestion] eq JOIN [OP].[tblRound] r ON eq.RoundID = r.id WHERE r.EventID = @EventID AND eq.StatusCode = 'active' AND eq.ActiveFlg = 1)
+            BEGIN
+                THROW 50040, N'A kérdés alatt nem válthatsz csapatot.', 1;
+            END
+
+            DECLARE @LT_EventUserID BIGINT = (SELECT TOP 1 id FROM [EJ].[tblEventUser] WHERE EventID = @EventID AND UserID = @UserID AND ActiveFlg = 1);
+            IF @LT_EventUserID IS NOT NULL
+            BEGIN
+                UPDATE [OP].[tblTeamMember] SET ActiveFlg = 0 WHERE EventUserID = @LT_EventUserID AND ActiveFlg = 1;
+            END
+
+            DECLARE @LTPing NVARCHAR(MAX) = (SELECT @Action AS Action, @EventID AS EventID, (@CurrentStateVersion + 1) AS StateVersion FOR JSON PATH, WITHOUT_ARRAY_WRAPPER);
+            INSERT INTO @SignalRTargets (TargetGroup, EventName, CustomPayload) VALUES 
+                ('event_' + CAST(@EventID AS VARCHAR) + '_gamer', @Action, @LTPing),
+                ('event_' + CAST(@EventID AS VARCHAR) + '_gamemaster', @Action, @LTPing),
+                ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', @Action, @LTPing);
+                
+            IF EXISTS (SELECT 1 FROM [OP].[DisplayCast] WHERE EventID = @EventID AND Face = 'lobby')
+            BEGIN
+                INSERT INTO @SignalRTargets (TargetGroup, EventName, CustomPayload) VALUES 
+                    ('event_' + CAST(@EventID AS VARCHAR) + '_display', @Action, @LTPing);
+            END
+        END
+        ELSE IF @Action = N'Op.React'
+        BEGIN
+            DECLARE @Glyph NVARCHAR(16) = JSON_VALUE(@Json, '$.Payload.Glyph');
+            
+            DECLARE @ReactPing NVARCHAR(MAX) = (SELECT @Action AS Action, @EventID AS EventID, @Glyph AS Glyph FOR JSON PATH, WITHOUT_ARRAY_WRAPPER);
+            INSERT INTO @SignalRTargets (TargetGroup, EventName, CustomPayload) VALUES 
+                ('event_' + CAST(@EventID AS VARCHAR) + '_gamemaster', @Action, @ReactPing),
+                ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', @Action, @ReactPing),
+                ('event_' + CAST(@EventID AS VARCHAR) + '_display', @Action, @ReactPing);
+                
+            -- Return without increasing StateVersion
+            COMMIT TRANSACTION;
+            SELECT 1 AS ReturnValue, N'Sikeres művelet' AS ReturnDescription;
+            SELECT TargetGroup, EventName, CustomPayload AS PayloadJson FROM @SignalRTargets;
+            RETURN;
+        END
+
         ELSE
         BEGIN
             DECLARE @Err NVARCHAR(200) = N'Ismeretlen Olimpub Action: ' + ISNULL(@Action, ''); THROW 50040, @Err, 1;
         END
 
+        -- Increment state version for all these actions except SubmitAnswer
+        UPDATE [OP].[tblEventSettings] SET StateVersion = StateVersion + 1 WHERE EventID = @EventID;
+
         COMMIT TRANSACTION;
         
-        -- RS1: API response
         SELECT 1 AS ReturnValue, N'Sikeres művelet' AS ReturnDescription;
-
-        -- RS2: SignalR Outbox a C# ServiceBus felé
-        SELECT 
-            TargetGroup,
-            EventName,
-            CustomPayload AS PayloadJson
-        FROM @SignalRTargets;
-
+        SELECT TargetGroup, EventName, CustomPayload AS PayloadJson FROM @SignalRTargets;
     END TRY
     BEGIN CATCH
         IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
         SELECT -1 AS ReturnValue, ERROR_MESSAGE() AS ReturnDescription;
     END CATCH
 END
-GO
+                                                                                 
+
+                                                                                                                                                                                                                                                             
