@@ -1,4 +1,4 @@
-﻿SET QUOTED_IDENTIFIER ON;
+SET QUOTED_IDENTIFIER ON;
 SET ANSI_NULLS ON;
 GO
 ALTER PROCEDURE [EJ].[spDeviceJoin]
@@ -54,8 +54,8 @@ BEGIN
         IF @LoginTypeID IS NULL SET @LoginTypeID = 2; -- Fallback
         
         SELECT @UserID = UserID 
-        FROM [EJ].[tblLoginIdentifier] 
-        WHERE LoginIdentifierTypeID = @LoginTypeID AND LOWER(IdentifierValue) = @DeviceId AND ActiveFlg = 1;
+        FROM [EJ].[tblUserLoginIdentifier] 
+        WHERE IdentifierTypeID = @LoginTypeID AND LOWER(IdentifierValueNormalized) = @DeviceId AND ActiveFlg = 1;
 
         IF @UserID IS NULL
         BEGIN
@@ -66,8 +66,8 @@ BEGIN
             SET @UserID = SCOPE_IDENTITY();
             SET @ActualNickname = @Nickname;
 
-            INSERT INTO [EJ].[tblLoginIdentifier] (UserID, LoginIdentifierTypeID, IdentifierValue, ActiveFlg, createdAt, updatedAt)
-            VALUES (@UserID, @LoginTypeID, @DeviceId, 1, @Now, @Now);
+            INSERT INTO [EJ].[tblUserLoginIdentifier] (UserID, IdentifierTypeID, IdentifierValueRaw, IdentifierValueNormalized, IsPrimary, IsVerified, ActiveFlg, createdAt, updatedAt)
+            VALUES (@UserID, @LoginTypeID, @DeviceId, @DeviceId, 0, 1, 1, @Now, @Now);
         END
         ELSE
         BEGIN
