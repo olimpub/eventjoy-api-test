@@ -43,10 +43,10 @@ namespace EventJoy.Api
                 string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
                 var data = JsonConvert.DeserializeObject<DeviceJoinDto>(requestBody);
 
-                if (string.IsNullOrEmpty(data?.DeviceId) || string.IsNullOrEmpty(data?.Nickname))
+                if (string.IsNullOrEmpty(data?.DeviceId))
                 {
                     var badReq = req.CreateResponse(System.Net.HttpStatusCode.BadRequest);
-                    await badReq.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = "DeviceId and Nickname are required." });
+                    await badReq.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = "DeviceId is required." });
                     return badReq;
                 }
 
@@ -81,6 +81,13 @@ namespace EventJoy.Api
                             }
                         }
                     }
+                }
+
+                if (returnValue == 404)
+                {
+                    var notFoundRes = req.CreateResponse(System.Net.HttpStatusCode.NotFound);
+                    await notFoundRes.WriteAsJsonAsync(new { ReturnValue = 404, ReturnDescription = returnDescription });
+                    return notFoundRes;
                 }
 
                 if (returnValue != 1 || userId == null)
@@ -118,6 +125,8 @@ namespace EventJoy.Api
                     EventId = eventId,
                     EventUserId = eventUserId,
                     UserId = userId,
+                    Nickname = data?.Nickname,
+                    Token = jwtToken,
                     JwtToken = jwtToken
                 });
 

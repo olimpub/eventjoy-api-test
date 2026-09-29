@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
@@ -23,7 +23,7 @@ namespace EventJoy.Api.Endpoints
                 {
                     await conn.OpenAsync();
                     using (var cmd = new SqlCommand(@"
-                        SELECT TOP 1 e.id AS EventID, e.EventUID, e.EventName AS Title,
+                        SELECT TOP 1 e.id AS EventID, e.EventUID, e.Title AS Title,
                         CASE WHEN (s.StatusName LIKE '%bejelentkez%' OR s.StatusName LIKE '%játék%' OR s.StatusName LIKE '%jatek%') THEN 1 ELSE 0 END AS JoinOpen
                         FROM [OP].[tblEventSettings] op
                         JOIN [EJ].[tblEvent] e ON e.id = op.EventID

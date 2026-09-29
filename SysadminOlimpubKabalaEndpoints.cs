@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Net;
 using System.Text.Json;
@@ -23,7 +23,7 @@ namespace EventJoy.Api
         {
             _logger = loggerFactory.CreateLogger<SysadminOlimpubKabalaEndpoints>();
             _connectionString = Environment.GetEnvironmentVariable("SqlConnectionString") ?? throw new InvalidOperationException("SqlConnectionString is missing.");
-            _storageConnectionString = Environment.GetEnvironmentVariable("StorageConnectionString") ?? throw new InvalidOperationException("StorageConnectionString is missing.");
+            _storageConnectionString = Environment.GetEnvironmentVariable("AzureWebJobsStorage") ?? throw new InvalidOperationException("AzureWebJobsStorage is missing.");
             _jwtSecret = Environment.GetEnvironmentVariable("JwtSecret") ?? "eventjoy_nagyon_titkos_es_biztonsagos_256bit_kulcs_2026_!!";
         }
 
@@ -95,7 +95,9 @@ namespace EventJoy.Api
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error getting kabalas.");
-                return req.CreateResponse(HttpStatusCode.InternalServerError);
+                var errRes = req.CreateResponse(HttpStatusCode.InternalServerError);
+                await errRes.WriteAsJsonAsync(new { Error = ex.Message, StackTrace = ex.StackTrace });
+                return errRes;
             }
         }
 
