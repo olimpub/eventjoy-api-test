@@ -131,14 +131,13 @@ BEGIN
                 ('event_' + CAST(@EventID AS VARCHAR) + '_gamemaster', @Action, @StopPing),
                 ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', @Action, @StopPing);
         END
-        ELSE IF @Action = N'Op.SubmitAnswer'
+                ELSE IF @Action = N'Op.SubmitAnswer'
         BEGIN
             DECLARE @SubmitEQID INT = JSON_VALUE(@Json, '$.Payload.EventQuestionID');
             DECLARE @CorrectFlg BIT = JSON_VALUE(@Json, '$.Payload.Correct');
             DECLARE @Ratio DECIMAL(12,4) = JSON_VALUE(@Json, '$.Payload.Ratio');
             IF @Ratio IS NULL
-    
-        BEGIN
+            BEGIN
                 SET @Ratio = CASE WHEN @CorrectFlg = 1 THEN 1.0 ELSE 0.0 END;
             END
             DECLARE @ElapsedMs INT = JSON_VALUE(@Json, '$.Payload.ElapsedMs');
@@ -147,55 +146,25 @@ BEGIN
            
             IF NOT EXISTS (SELECT 1 FROM [OP].[tblEventQuestion] WHERE id = @SubmitEQID AND StatusCode = 'active' AND ActiveFlg = 1)
             BEGIN
-
                 THROW 50030, N'A kérdés már lezárult vagy nem aktív, nem lehet válaszolni!', 1;
             END
-
-            -- Ha van legalább egy csapat, de nincs csapata a játékosnak: 400
-            IF EXISTS (SELECT 1 FROM [OP].[tblTeam] WHERE EventID = @EventID AND ActiveFlg = 1)
-               AND NOT EXISTS (SELECT 1 FROM [OP].[tblTeamMember] WHERE EventUserID = @EventUser AND ActiveFlg = 1)
-            BEGIN
-                THROW 50031, N'Válassz csapatot.', 1;
-            END
-
-            -- Beszúrjuk az Answer rekordot
-            DECLARE @NewAnswerID INT;
-            -- Ha van már válasza, írjuk felül (inaktiváljuk a régit)
-            UPDATE [OP].[tblAnswer] SET ActiveFlg = 0 WHERE EventUserID = @EventUser AND EventQuestionID = @SubmitEQID;
-
-
-            INSERT INTO [OP].[tblAnswer] (EventQuestionID, EventUserID, ReceivedAtUtc, ActiveFlg, CorrectFlg, Ratio, ElapsedMs)
-            VALUES (@SubmitEQID, @EventUser, @Now, 1, @CorrectFlg, @Ratio, @ElapsedMs);
-            SET @NewAnswerID = SCOPE_IDENTITY();
-
-            INSERT INTO [OP].[tblAnswerItem] (AnswerID, OptionID, MatchOptionID, SortIndex, TextValue)
-            SELECT @NewAnswerID, OptionID, MatchOptionID, SortIndex, TextValue
-            FROM OPENJSON(@Json, '$.Payload.Items') WITH (OptionID INT, MatchOptionID INT, SortIndex INT, TextValue NVARCHAR(500));
             
             DECLARE @AnswerCount INT = (SELECT COUNT(DISTINCT EventUserID) FROM [OP].[tblAnswer] WHERE EventQuestionID = @SubmitEQID AND ActiveFlg = 1);
-
-            -- Első válasz után ping: csak gamemaster és organizer
-            -- Vagy igazából minden válasz után érdemes pingelni a darabszámot? A specifikáció azt írja:
-            -- "Első válasz után ping gamer helyett csak gamemaster + organizer: { Action: "Op.SubmitAnswer", EventID, StateVersion, AnswerCount }. A válasz tartalma nincs a hubon."
-            -- Ha minden válaszra pingelünk, az drága. Hát, frissítjük.
+            DECLARE @RosterCount INT = (SELECT COUNT(DISTINCT tm.EventUserID) FROM [OP].[tblTeamMember] tm JOIN [OP].[tblTeam] t ON tm.TeamID = t.id WHERE t.EventID = @EventID AND t.ActiveFlg = 1 AND tm.ActiveFlg = 1);
             
-            -- Wait! A specifikáció nem írja, hogy StateVersion nő SubmitAnswer esetén! De a pingbe beletesszük!
-            -- Actually, SubmitAnswer DOES NOT change state version. "Minden állapotot módosító action növel egy StateVersion" de a SubmitAnswer kliens oldalról jön.
-            -- Ne növeljük a StateVersiont itt. (Azt az if-en kívül úgyis csak akkor tesszük, ha kell).
-            
-            DECLARE @SAPing NVARCHAR(MAX) = (SELECT @Action AS Action, @EventID AS EventID, @CurrentStateVersion AS StateVersion, @AnswerCount AS AnswerCount FOR JSON PATH, WITHOUT_ARRAY_WRAPPER);
+            DECLARE @SAPing NVARCHAR(MAX) = (SELECT @Action AS Action, @EventID AS EventID, @CurrentStateVersion AS StateVersion, @AnswerCount AS AnswerCount, @RosterCount AS RosterCount FOR JSON PATH, WITHOUT_ARRAY_WRAPPER);
      
-       INSERT INTO @SignalRTargets (TargetGroup, EventName, CustomPayload) VALUES 
+            INSERT INTO @SignalRTargets (TargetGroup, EventName, CustomPayload) VALUES 
                 ('event_' + CAST(@EventID AS VARCHAR) + '_gamemaster', @Action, @SAPing),
-                ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', @Action, @SAPing);
+                ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', @Action, @SAPing),
+                ('event_' + CAST(@EventID AS VARCHAR) + '_display', @Action, @SAPing);
             
-            -- Return without increasing StateVersion
             COMMIT TRANSACTION;
             SELECT 1 AS ReturnValue, N'Sikeres művelet' AS ReturnDescription;
             SELECT TargetGroup, EventName, CustomPayload AS PayloadJson FROM @SignalRTargets;
             RETURN;
         END
-        ELSE IF @Action = N'Op.NextQuestion'
+ELSE IF @Action = N'Op.NextQuestion'
         BEGIN
             DECLARE @NQ_RoundID INT = JSON_VALUE(@Json, '$.Payload.RoundID');
             -- Csak StateVersion-t növelünk, hogy a kliensek lehúzzák az új OpLive-ot
