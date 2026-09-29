@@ -351,7 +351,7 @@ namespace EventJoy.Api
                                               {
                                                   if (row.ContainsKey("AssetsJson") && row["AssetsJson"] != null)
                                                   {
-                                                      row["Assets"] = JsonSerializer.Deserialize<JsonElement>(row["AssetsJson"].ToString());
+                                                      row["Assets"] = JsonSerializer.Deserialize<JsonElement>(row["AssetsJson"]!.ToString()!);
                                                       row.Remove("AssetsJson");
                                                   }
                                                   else

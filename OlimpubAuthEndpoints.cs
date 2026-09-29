@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Threading.Tasks;
 using Microsoft.Azure.Functions.Worker;
@@ -103,9 +103,9 @@ namespace EventJoy.Api
                 var claims = new List<Claim>
                 {
                     new Claim(ClaimTypes.NameIdentifier, userId.Value.ToString()),
-                    new Claim("DeviceId", data.DeviceId), // Egyedi claim az Olimpubhoz
+                    new Claim("DeviceId", data!.DeviceId), // Egyedi claim az Olimpubhoz
                     new Claim("EventId", eventId.ToString() ?? ""), // Esemény azonosító (hogy ne lehessen másikba belépni ezzel a tokennel)
-                    new Claim("TeamId", data.TeamId?.ToString() ?? "") // Csapat azonosító a SignalR csoportba léptetéshez
+                    new Claim("TeamId", data!.TeamId?.ToString() ?? "") // Csapat azonosító a SignalR csoportba léptetéshez
                 };
 
                 var tokenDescriptor = new SecurityTokenDescriptor
