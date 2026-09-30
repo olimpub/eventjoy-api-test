@@ -231,8 +231,13 @@ namespace EventJoy.Api
             }
 
             var queryDict = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
-            string board = queryDict["board"] ?? "main";
-            string? extraGameId = queryDict["ExtraGameId"] ?? queryDict["extraGameId"] ?? queryDict["extragameid"];
+            
+            // Handle duplicate query params gracefully by taking the first one
+            string rawBoard = queryDict["board"] ?? queryDict["Board"] ?? "main";
+            string board = rawBoard.Split(',')[0].Trim();
+
+            string? rawExtra = queryDict["ExtraGameId"] ?? queryDict["extraGameId"] ?? queryDict["extragameid"];
+            string? extraGameId = string.IsNullOrEmpty(rawExtra) ? null : rawExtra.Split(',')[0].Trim();
 
             try
             {
