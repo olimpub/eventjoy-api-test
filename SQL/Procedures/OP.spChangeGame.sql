@@ -480,6 +480,41 @@ ELSE IF @Action = N'Op.ShowLeaderboard'
                 THROW 50035, N'Még van nyitott vagy indítatlan kérdés a fordulóban!', 1;
             END
             
+            -- Calculate Round Scores
+            DECLARE @N INT = (SELECT COUNT(*) FROM [OP].[tblTeam] WHERE EventID = @EventID AND ActiveFlg = 1);
+            IF @N = 0 SET @N = 1;
+            
+            DECLARE @P_max FLOAT = 100.0;
+            DECLARE @P_min FLOAT = CASE WHEN @N <= 5 THEN 50.0 WHEN @N <= 10 THEN 40.0 WHEN @N <= 20 THEN 30.0 ELSE 20.0 END;
+            
+            SELECT 
+                t.id AS TeamID,
+                ISNULL(SUM(qs.RawS), 0) AS RawSSum,
+                RANK() OVER (ORDER BY ISNULL(SUM(qs.RawS), 0) DESC) AS Place
+            INTO #CR_TeamScores
+            FROM [OP].[tblTeam] t
+            LEFT JOIN [OP].[tblQuestionScore] qs ON t.id = qs.TeamID AND qs.EventQuestionID IN (
+                SELECT id FROM [OP].[tblEventQuestion] WHERE RoundID = @CR_RoundID AND ActiveFlg = 1
+            )
+            WHERE t.EventID = @EventID AND t.ActiveFlg = 1
+            GROUP BY t.id;
+            
+            DELETE FROM [OP].[tblRoundScore] WHERE RoundID = @CR_RoundID;
+            
+            INSERT INTO [OP].[tblRoundScore] (RoundID, TeamID, RawSSum, Place, F)
+            SELECT 
+                @CR_RoundID,
+                TeamID,
+                RawSSum,
+                Place,
+                CASE 
+                    WHEN @N = 1 THEN @P_max
+                    ELSE ROUND(@P_min + (@P_max - @P_min) * CAST((@N - Place) AS FLOAT) / CAST((@N - 1) AS FLOAT), 0)
+                END AS F
+            FROM #CR_TeamScores;
+            
+            DROP TABLE #CR_TeamScores;
+            
             DECLARE @ClosedStatusID INT = (SELECT id FROM [OP].[tblRoundStatus] WHERE Code = 'closed');
             UPDATE [OP].[tblRound] SET RoundStatusID = @ClosedStatusID WHERE id = @CR_RoundID AND EventID = @EventID;
             
