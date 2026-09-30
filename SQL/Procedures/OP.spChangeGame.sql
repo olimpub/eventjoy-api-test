@@ -414,9 +414,40 @@ ELSE IF @Action = N'Op.NextQuestion'
                 END
                 ELSE IF @GameId IN ('EG4', 'EG5', 'EG6', 'EG7', 'EG8')
                 BEGIN
-                    -- EG4-8 raw point calculations are pending complex S formula.
-                    -- Currently keeping placeholder.
-                    DECLARE @Dummy INT = 1;
+                    -- EG4-8 placeholder logic until complex S formula is clear:
+                    -- Award 50, 40, 30, 20, 10 points to the fastest 5 correct teams.
+                    
+                    SELECT 
+                        tm.TeamID,
+                        MIN(ea.ElapsedMs) AS MinElapsedMs
+                    INTO #EG4_TopTeams
+                    FROM [OP].[tblExtraAnswer] ea
+                    JOIN [OP].[tblTeamMember] tm ON ea.EventUserID = tm.EventUserID
+                    WHERE ea.ExtraQuestionID = @STQ_ID AND ea.CorrectFlg = 1
+                    GROUP BY tm.TeamID;
+
+                    SELECT 
+                        TeamID,
+                        ROW_NUMBER() OVER (ORDER BY MinElapsedMs ASC, TeamID ASC) AS Rnk
+                    INTO #EG4_Winners
+                    FROM #EG4_TopTeams;
+
+                    MERGE INTO [OP].[tblExtraScore] AS target
+                    USING (
+                        SELECT TeamID, 
+                               CASE Rnk WHEN 1 THEN 50 WHEN 2 THEN 40 WHEN 3 THEN 30 WHEN 4 THEN 20 WHEN 5 THEN 10 ELSE 0 END AS PointsToAdd
+                        FROM #EG4_Winners
+                        WHERE Rnk <= 5
+                    ) AS source
+                    ON target.ExtraRunID = @ExtraRunID AND target.TeamID = source.TeamID
+                    WHEN MATCHED THEN
+                        UPDATE SET Points = target.Points + source.PointsToAdd
+                    WHEN NOT MATCHED THEN
+                        INSERT (ExtraRunID, TeamID, Points)
+                        VALUES (@ExtraRunID, source.TeamID, source.PointsToAdd);
+
+                    DROP TABLE #EG4_TopTeams;
+                    DROP TABLE #EG4_Winners;
                 END
             END
             
