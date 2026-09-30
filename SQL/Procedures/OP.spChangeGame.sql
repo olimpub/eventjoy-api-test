@@ -455,6 +455,28 @@ ELSE IF @Action = N'Op.NextQuestion'
             SELECT TargetGroup, EventName, CustomPayload AS PayloadJson FROM @SignalRTargets;
             RETURN;
         END
+        ELSE IF @Action = N'Op.AdjustTeam'
+        BEGIN
+            DECLARE @ADJ_TeamID INT = JSON_VALUE(@Json, '$.Payload.TeamID');
+            DECLARE @ADJ_Direction NVARCHAR(50) = JSON_VALUE(@Json, '$.Payload.Direction');
+            DECLARE @ADJ_Points INT = CASE WHEN @ADJ_Direction = 'plus' THEN 1 WHEN @ADJ_Direction = 'minus' THEN -1 ELSE 0 END;
+
+            INSERT INTO [OP].[tblPenalty] (EventID, TeamID, Points, LastCreatedUserID)
+            VALUES (@EventID, @ADJ_TeamID, @ADJ_Points, @UserID);
+
+            -- SignalR push to refresh leaderboards
+            DECLARE @ADJ_Ping NVARCHAR(MAX) = (SELECT @Action AS Action, @EventID AS EventID, (@CurrentStateVersion + 1) AS StateVersion FOR JSON PATH, WITHOUT_ARRAY_WRAPPER);
+            INSERT INTO @SignalRTargets (TargetGroup, EventName, CustomPayload) VALUES 
+                ('event_' + CAST(@EventID AS VARCHAR) + '_qm', @Action, @ADJ_Ping),
+                ('event_' + CAST(@EventID AS VARCHAR) + '_display', @Action, @ADJ_Ping);
+
+            UPDATE [OP].[tblEventState] SET StateVersion = StateVersion + 1, UpdatedAtUtc = SYSUTCDATETIME() WHERE EventID = @EventID;
+
+            COMMIT TRANSACTION;
+            SELECT 1 AS ReturnValue, N'Pontszám manuálisan módosítva' AS ReturnDescription;
+            SELECT TargetGroup, EventName, CustomPayload AS PayloadJson FROM @SignalRTargets;
+            RETURN;
+        END
         ELSE IF @Action = N'Op.MosaicJudge'
         BEGIN
             DECLARE @MJ_TeamID INT = JSON_VALUE(@Json, '$.Payload.TeamID');
