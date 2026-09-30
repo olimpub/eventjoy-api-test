@@ -1,4 +1,4 @@
-SET QUOTED_IDENTIFIER ON;
+﻿SET QUOTED_IDENTIFIER ON;
 SET ANSI_NULLS ON;
 GO
 
@@ -26,6 +26,8 @@ BEGIN
         q.Prompt,
         q.TimeSec,
         q.MediaUrl,
+        q.ImageKey,
+        q.AudioKey,
         CASE WHEN EXISTS (
             SELECT 1 FROM [OP].[tblEventQuestion] eq 
             JOIN [OP].[tblRound] r ON eq.RoundID = r.id 

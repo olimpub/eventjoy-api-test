@@ -115,7 +115,7 @@ namespace EventJoy.Api
                                                 }
                                                 responseDict[datasetName] = datasetRows[0];
                                             }
-                                                                                                                                    else if (datasetName == "OpEventQuestions")
+                                                                                                                                    else if (datasetName == "OpEventQuestions" || datasetName == "OpExtraCatalog" || datasetName == "OpExtraPool")
                                             {
                                                 BlobServiceClient blobServiceClient = new BlobServiceClient(_storageConnectionString);
                                                 BlobContainerClient containerClient = blobServiceClient.GetBlobContainerClient("op-media");
@@ -297,6 +297,34 @@ namespace EventJoy.Api
                         using (var reader = await cmd.ExecuteReaderAsync())
                         {
                             rows = await ReadResultSetAsync(reader);
+                            
+                            BlobServiceClient blobServiceClient = new BlobServiceClient(_storageConnectionString);
+                            BlobContainerClient containerClient = blobServiceClient.GetBlobContainerClient("op-media");
+                            
+                            foreach (var row in rows)
+                            {
+                                string? imgKey = row.ContainsKey("ImageKey") ? row["ImageKey"]?.ToString() : null;
+                                if (!string.IsNullOrEmpty(imgKey))
+                                {
+                                    BlobClient blobClient = containerClient.GetBlobClient($"{id}/{imgKey}");
+                                    row["ImageUrl"] = blobClient.Uri.ToString();
+                                }
+                                else
+                                {
+                                    row["ImageUrl"] = null;
+                                }
+
+                                string? audKey = row.ContainsKey("AudioKey") ? row["AudioKey"]?.ToString() : null;
+                                if (!string.IsNullOrEmpty(audKey))
+                                {
+                                    BlobClient blobClient = containerClient.GetBlobClient($"{id}/{audKey}");
+                                    row["AudioUrl"] = blobClient.Uri.ToString();
+                                }
+                                else
+                                {
+                                    row["AudioUrl"] = null;
+                                }
+                            }
                         }
                     }
                 }
