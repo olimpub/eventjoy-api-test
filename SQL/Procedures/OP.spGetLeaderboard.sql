@@ -16,7 +16,7 @@ BEGIN
 
     BEGIN
         IF EXISTS (SELECT 1 FROM [EJ].[tblEventUser] eu JOIN [EJ].[tblEventRole] er ON eu.EventRoleID = er.id JOIN [EJ].[tblRole] r ON er.RoleID = r.id WHERE eu.EventID = @EventID AND eu.UserID = @UserID AND r.RoleTypeID = 1 AND eu.ActiveFlg = 1) SET @IsOrg = 1;
-        IF EXISTS (SELECT 1 FROM [EJ].[tblEventUser] eu JOIN [EJ].[tblEventRole] er ON eu.EventRoleID = er.id JOIN [EJ].[tblRole] r ON er.RoleID = r.id WHERE eu.EventID = @EventID AND eu.UserID = @UserID AND r.RoleTypeID = 7 AND eu.ActiveFlg = 1) SET @IsQM = 1;
+        IF EXISTS (SELECT 1 FROM [EJ].[tblEventUser] eu JOIN [EJ].[tblEventRole] er ON eu.EventRoleID = er.id JOIN [EJ].[tblRole] r ON er.RoleID = r.id WHERE eu.EventID = @EventID AND eu.UserID = @UserID AND r.id = 7 AND eu.ActiveFlg = 1) SET @IsQM = 1;
     END
 
     -- Játékos esetén a "published" szűrő (QM/Org a "closed"-et is látja a boardokon)
@@ -33,25 +33,28 @@ BEGIN
     IF @Board = 'main'
     BEGIN
         SELECT 
- 
-           t.id AS TeamId,
+            t.id AS TeamId,
             k.Name,
-            ISNULL(SUM(rs.F), 0) + ISNULL(SUM(p.Points), 0) + ISNULL(SUM(es.Points), 0) AS Points,
+            ISNULL(rs_agg.F, 0) + ISNULL(p_agg.Points, 0) + ISNULL(es_agg.Points, 0) AS Points,
             ISNULL(db.PreviousPoints, 0) AS PreviousPoints,
-            ISNULL(db.PreviousPoints, 0) AS PreviousPoints,
-            RANK() OVER (ORDER BY ISNULL(SUM(rs.F), 0) + ISNULL(SUM(p.Points), 0) + ISNULL(SUM(es.Points), 0) DESC) AS Place
+            RANK() OVER (ORDER BY ISNULL(rs_agg.F, 0) + ISNULL(p_agg.Points, 0) + ISNULL(es_agg.Points, 0) DESC) AS Place
         FROM [OP].[tblTeam] t
         JOIN [OP].[tblKabala] k ON t.KabalaID = k.id
-        LEFT JOIN [OP].[tblRoundScore] rs ON rs.TeamID = t.id AND rs.RoundID IN (
-            SELECT id FROM [OP].[tblRound] WHERE EventID = @EventID AND RoundStatusID IN (SELECT StatusID FROM @StatusFilter)
-        )
-        LEFT JOIN [OP].[tblPenalty] p ON p.TeamID = t.id AND p.ActiveFlg = 1
-        LEFT JOIN [OP].[tblExtraScore] es ON es.TeamID = t.id AND es.ExtraRunID IN (
-            SELECT id FROM [OP].[tblExtraRun] WHERE EventID = @EventID AND StatusCode = 'closed'
-        )
+        OUTER APPLY (
+            SELECT SUM(rs.F) AS F FROM [OP].[tblRoundScore] rs WHERE rs.TeamID = t.id AND rs.RoundID IN (
+                SELECT id FROM [OP].[tblRound] WHERE EventID = @EventID AND RoundStatusID IN (SELECT StatusID FROM @StatusFilter)
+            )
+        ) rs_agg
+        OUTER APPLY (
+            SELECT SUM(p.Points) AS Points FROM [OP].[tblPenalty] p WHERE p.TeamID = t.id AND p.ActiveFlg = 1
+        ) p_agg
+        OUTER APPLY (
+            SELECT SUM(es.Points) AS Points FROM [OP].[tblExtraScore] es WHERE es.TeamID = t.id AND es.ExtraRunID IN (
+                SELECT id FROM [OP].[tblExtraRun] WHERE EventID = @EventID AND StatusCode = 'closed'
+            )
+        ) es_agg
         LEFT JOIN [OP].[tblDisplayBoard] db ON db.TeamID = t.id AND db.Board = @Board AND db.EventID = @EventID
         WHERE t.EventID = @EventID AND t.ActiveFlg = 1
-        GROUP BY t.id, k.Name, db.PreviousPoints
         ORDER BY Place ASC;
     END
     ELSE IF @Board = 'quiz'
