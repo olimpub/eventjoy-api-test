@@ -470,7 +470,7 @@ ELSE IF @Action = N'Op.NextQuestion'
                 ('event_' + CAST(@EventID AS VARCHAR) + '_qm', @Action, @ADJ_Ping),
                 ('event_' + CAST(@EventID AS VARCHAR) + '_display', @Action, @ADJ_Ping);
 
-            UPDATE [OP].[tblEventState] SET StateVersion = StateVersion + 1, UpdatedAtUtc = SYSUTCDATETIME() WHERE EventID = @EventID;
+            UPDATE [OP].[tblEventSettings] SET StateVersion = StateVersion + 1 WHERE EventID = @EventID;
 
             COMMIT TRANSACTION;
             SELECT 1 AS ReturnValue, N'Pontszám manuálisan módosítva' AS ReturnDescription;
