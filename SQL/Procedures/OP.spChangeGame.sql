@@ -132,7 +132,7 @@ ELSE IF @Action = N'Op.StopQuestion'
                 ('event_' + CAST(@EventID AS VARCHAR) + '_gamemaster', @Action, @StopPing),
                 ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', @Action, @StopPing);
         END
-                ELSE IF @Action = N'Op.SubmitAnswer'
+                        ELSE IF @Action = N'Op.SubmitAnswer'
         BEGIN
             DECLARE @SubmitEQID INT = JSON_VALUE(@Json, '$.Payload.EventQuestionID');
             DECLARE @CorrectFlg BIT = JSON_VALUE(@Json, '$.Payload.Correct');
@@ -149,6 +149,27 @@ ELSE IF @Action = N'Op.StopQuestion'
             BEGIN
                 THROW 50030, N'A kérdés már lezárult vagy nem aktív, nem lehet válaszolni!', 1;
             END
+
+            -- Check Team
+            IF EXISTS (SELECT 1 FROM [OP].[tblTeam] WHERE EventID = @EventID AND ActiveFlg = 1)
+               AND NOT EXISTS (SELECT 1 FROM [OP].[tblTeamMember] WHERE EventUserID = @EventUser AND ActiveFlg = 1)
+            BEGIN
+                THROW 50031, N'Válassz csapatot.', 1;
+            END
+
+            -- INSERT Answer
+            DECLARE @NewAnswerID INT;
+            
+            -- Inactivate previous
+            UPDATE [OP].[tblAnswer] SET ActiveFlg = 0 WHERE EventUserID = @EventUser AND EventQuestionID = @SubmitEQID;
+
+            INSERT INTO [OP].[tblAnswer] (EventQuestionID, EventUserID, ReceivedAtUtc, ActiveFlg, CorrectFlg, Ratio, ElapsedMs)
+            VALUES (@SubmitEQID, @EventUser, @Now, 1, @CorrectFlg, @Ratio, @ElapsedMs);
+            SET @NewAnswerID = SCOPE_IDENTITY();
+
+            INSERT INTO [OP].[tblAnswerItem] (AnswerID, OptionID, MatchOptionID, SortIndex, TextValue)
+            SELECT @NewAnswerID, OptionID, MatchOptionID, SortIndex, TextValue
+            FROM OPENJSON(@Json, '$.Payload.Items') WITH (OptionID INT, MatchOptionID INT, SortIndex INT, TextValue NVARCHAR(500));
             
             DECLARE @AnswerCount INT = (SELECT COUNT(DISTINCT EventUserID) FROM [OP].[tblAnswer] WHERE EventQuestionID = @SubmitEQID AND ActiveFlg = 1);
             DECLARE @RosterCount INT = (SELECT COUNT(DISTINCT tm.EventUserID) FROM [OP].[tblTeamMember] tm JOIN [OP].[tblTeam] t ON tm.TeamID = t.id WHERE t.EventID = @EventID AND t.ActiveFlg = 1 AND tm.ActiveFlg = 1);
@@ -165,7 +186,7 @@ ELSE IF @Action = N'Op.StopQuestion'
             SELECT TargetGroup, EventName, CustomPayload AS PayloadJson FROM @SignalRTargets;
             RETURN;
         END
-        ELSE IF @Action = N'Op.NextQuestion'
+ELSE IF @Action = N'Op.NextQuestion'
         BEGIN
             DECLARE @NQ_RoundID INT = JSON_VALUE(@Json, '$.Payload.RoundID');
             
