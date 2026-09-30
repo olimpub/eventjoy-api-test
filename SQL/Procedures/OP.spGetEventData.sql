@@ -135,13 +135,14 @@ BEGIN
     SELECT 
         xeq.id, xr.ExtraGameId, xeq.SortIndex, xeq.StatusCode, xeq.StartedAtUtc, xeq.StoppedAtUtc,
         xeq.Prompt, qt.Code AS TypeCode, xeq.TimeSec,
-        (SELECT id, ListType, Value, SortIndex FROM [OP].[tblExtraQuestionOption] WHERE ExtraQuestionID = xeq.id ORDER BY SortIndex FOR JSON PATH) AS OptionsJson,
+        (SELECT id, ListType, Value, SortIndex FROM [OP].[tblQuestionOption] WHERE QuestionID = eeq.QuestionID ORDER BY SortIndex FOR JSON PATH) AS OptionsJson,
         CASE WHEN (@IsQM = 1 OR @IsOrg = 1 OR @IsPlayer = 1) THEN 
-            (SELECT OptionID, MatchOptionID, SortIndex, TextValue FROM [OP].[tblExtraQuestionCorrectAnswer] WHERE ExtraQuestionID = xeq.id FOR JSON PATH)
+            (SELECT OptionID, MatchOptionID, SortIndex, TextValue FROM [OP].[tblQuestionCorrectAnswer] WHERE QuestionID = eeq.QuestionID FOR JSON PATH)
         ELSE NULL END AS CorrectJson
     FROM [OP].[tblExtraQuestion] xeq
     JOIN [OP].[tblExtraRun] xr ON xeq.ExtraRunID = xr.id
     JOIN [OP].[tblQuestionType] qt ON xeq.QuestionTypeID = qt.id
+    JOIN [OP].[tblEventExtraQuestion] eeq ON xr.EventID = eeq.EventID AND xr.ExtraGameId = eeq.ExtraGameId AND xeq.SortIndex = eeq.SortIndex
     WHERE xr.EventID = @EventID AND xr.StatusCode = 'active';
 
     -- Dataset: DisplayCast (1 sor)
