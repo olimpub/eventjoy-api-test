@@ -1,4 +1,6 @@
-﻿ALTER PROCEDURE [OP].[spImportQuestions]
+﻿SET QUOTED_IDENTIFIER ON;
+GO
+ALTER PROCEDURE [OP].[spImportQuestions]
     @Json NVARCHAR(MAX),
     @UserID INT
 AS
