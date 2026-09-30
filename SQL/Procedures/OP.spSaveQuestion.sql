@@ -1,3 +1,5 @@
+﻿SET QUOTED_IDENTIFIER ON;
+GO
 CREATE OR ALTER PROCEDURE [OP].[spSaveQuestion]
     @Json NVARCHAR(MAX),
     @UserID INT
@@ -12,16 +14,43 @@ BEGIN
         DECLARE @EventID INT = JSON_VALUE(@Json, '$.EventID');
         DECLARE @EventQuestionID INT = JSON_VALUE(@Json, '$.EventQuestionID');
         DECLARE @QuestionID INT = JSON_VALUE(@Json, '$.QuestionID');
+        DECLARE @ExtraGameId NVARCHAR(50) = JSON_VALUE(@Json, '$.ExtraGameId');
         
-        -- 1. Validate Status
         DECLARE @StatusCode NVARCHAR(50);
-        SELECT @StatusCode = StatusCode 
-        FROM [OP].[tblEventQuestion] 
-        WHERE id = @EventQuestionID AND EventID = @EventID AND QuestionID = @QuestionID;
+        DECLARE @EventExtraQuestionID INT;
         
-        IF @StatusCode IS NULL
+        IF @EventQuestionID IS NOT NULL
         BEGIN
-            THROW 50010, 'A kérdés nem található ebben az eseményben.', 1;
+            SELECT @StatusCode = StatusCode 
+            FROM [OP].[tblEventQuestion] 
+            WHERE id = @EventQuestionID AND EventID = @EventID AND QuestionID = @QuestionID;
+            
+            IF @StatusCode IS NULL
+            BEGIN
+                THROW 50010, 'A kérdés nem található ebben az eseményben.', 1;
+            END
+            
+            IF @StatusCode != 'pending'
+            BEGIN
+                THROW 50010, 'A kérdés már lement vagy fut, nem szerkeszthető.', 1;
+            END
+        END
+        ELSE IF @ExtraGameId IS NOT NULL AND @QuestionID IS NOT NULL
+        BEGIN
+            SELECT @EventExtraQuestionID = id
+            FROM [OP].[tblEventExtraQuestion]
+            WHERE EventID = @EventID AND QuestionID = @QuestionID AND ExtraGameId = @ExtraGameId;
+            
+            IF @EventExtraQuestionID IS NULL
+            BEGIN
+                THROW 50010, 'A kérdés nem található ebben az extra játékban.', 1;
+            END
+            
+            SET @StatusCode = 'pending';
+        END
+        ELSE
+        BEGIN
+            THROW 50010, 'A kérdés nem található (érvénytelen azonosító).', 1;
         END
         
         IF @StatusCode != 'pending'
@@ -87,12 +116,21 @@ BEGIN
             LastCreatedUserID = @UserID
         WHERE id = @QuestionID;
         
-        -- 3. Update tblEventQuestion
-        UPDATE [OP].[tblEventQuestion]
-        SET TimeSec = @NewTimeSec,
-            SortIndex = ISNULL(@NewSortIndex, SortIndex),
-            LastCreatedUserID = @UserID
-        WHERE id = @EventQuestionID;
+        -- 3. Update event mapping table
+        IF @EventQuestionID IS NOT NULL
+        BEGIN
+            UPDATE [OP].[tblEventQuestion]
+            SET TimeSec = @NewTimeSec,
+                SortIndex = ISNULL(@NewSortIndex, SortIndex),
+                LastCreatedUserID = @UserID
+            WHERE id = @EventQuestionID;
+        END
+        ELSE IF @EventExtraQuestionID IS NOT NULL
+        BEGIN
+            UPDATE [OP].[tblEventExtraQuestion]
+            SET SortIndex = ISNULL(@NewSortIndex, SortIndex)
+            WHERE id = @EventExtraQuestionID;
+        END
         
         -- 4. Delete Old Options & Correct Answers
         DELETE FROM [OP].[tblQuestionCorrectAnswer] WHERE QuestionID = @QuestionID;
