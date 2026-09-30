@@ -351,16 +351,75 @@ ELSE IF @Action = N'Op.NextQuestion'
                 ('event_' + CAST(@EventID AS VARCHAR) + '_gamemaster', @Action, @SEQ_Ping),
                 ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', @Action, @SEQ_Ping);
         END
+                ELSE IF @Action = N'Op.KaraokeSet'
+        BEGIN
+            -- v1 FE nem hívja — fogadd, ne törjön
+            DECLARE @KS_Ping NVARCHAR(MAX) = (SELECT @Action AS Action, @EventID AS EventID, (@CurrentStateVersion + 1) AS StateVersion FOR JSON PATH, WITHOUT_ARRAY_WRAPPER);
+            INSERT INTO @SignalRTargets (TargetGroup, EventName, CustomPayload) VALUES 
+                ('event_' + CAST(@EventID AS VARCHAR) + '_gamer', @Action, @KS_Ping),
+                ('event_' + CAST(@EventID AS VARCHAR) + '_gamemaster', @Action, @KS_Ping),
+                ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', @Action, @KS_Ping);
+        END
         ELSE IF @Action = N'Op.StopExtraQuestion'
         BEGIN
             DECLARE @STQ_ID INT = JSON_VALUE(@Json, '$.Payload.ExtraQuestionId');
             
             UPDATE [OP].[tblExtraQuestion] 
             SET StatusCode = 'stopped', StoppedAtUtc = @Now 
-            WHERE id = @STQ_ID;
+            WHERE id = @STQ_ID AND StatusCode = 'active';
             
-            -- If EG1, award +10 to fastest correct team
-            -- Left for simplicity for now, just sending ping
+            IF @@ROWCOUNT > 0
+            BEGIN
+                DECLARE @GameId NVARCHAR(50);
+                DECLARE @ExtraRunID INT;
+                
+                SELECT @GameId = er.ExtraGameId, @ExtraRunID = er.id 
+                FROM [OP].[tblExtraQuestion] eq 
+                JOIN [OP].[tblExtraRun] er ON eq.ExtraRunID = er.id 
+                WHERE eq.id = @STQ_ID;
+
+                IF @GameId = 'EG1'
+                BEGIN
+                    SELECT 
+                        tm.TeamID,
+                        MIN(ea.ElapsedMs) AS MinElapsedMs
+                    INTO #EG1_TopTeams
+                    FROM [OP].[tblExtraAnswer] ea
+                    JOIN [OP].[tblTeamMember] tm ON ea.EventUserID = tm.EventUserID
+                    WHERE ea.ExtraQuestionID = @STQ_ID AND ea.CorrectFlg = 1
+                    GROUP BY tm.TeamID;
+
+                    SELECT 
+                        TeamID,
+                        ROW_NUMBER() OVER (ORDER BY MinElapsedMs ASC, TeamID ASC) AS Rnk
+                    INTO #EG1_Winners
+                    FROM #EG1_TopTeams;
+
+                    MERGE INTO [OP].[tblExtraScore] AS target
+                    USING (
+                        SELECT TeamID, 
+                               CASE Rnk WHEN 1 THEN 20 WHEN 2 THEN 10 WHEN 3 THEN 5 END AS PointsToAdd
+                        FROM #EG1_Winners
+                        WHERE Rnk <= 3
+                    ) AS source
+                    ON target.ExtraRunID = @ExtraRunID AND target.TeamID = source.TeamID
+                    WHEN MATCHED THEN
+                        UPDATE SET Points = target.Points + source.PointsToAdd
+                    WHEN NOT MATCHED THEN
+                        INSERT (ExtraRunID, TeamID, Points)
+                        VALUES (@ExtraRunID, source.TeamID, source.PointsToAdd);
+
+                    DROP TABLE #EG1_TopTeams;
+                    DROP TABLE #EG1_Winners;
+                END
+                ELSE IF @GameId IN ('EG4', 'EG5', 'EG6', 'EG7', 'EG8')
+                BEGIN
+                    -- EG4-8 raw point calculations are pending complex S formula.
+                    -- Currently keeping placeholder.
+                    DECLARE @Dummy INT = 1;
+                END
+            END
+            
             DECLARE @STQ_Ping NVARCHAR(MAX) = (SELECT @Action AS Action, @EventID AS EventID, (@CurrentStateVersion + 1) AS StateVersion FOR JSON PATH, WITHOUT_ARRAY_WRAPPER);
             INSERT INTO @SignalRTargets (TargetGroup, EventName, CustomPayload) VALUES 
                 ('event_' + CAST(@EventID AS VARCHAR) + '_gamer', @Action, @STQ_Ping),
@@ -398,6 +457,22 @@ ELSE IF @Action = N'Op.NextQuestion'
         END
         ELSE IF @Action = N'Op.MosaicJudge'
         BEGIN
+            DECLARE @MJ_TeamID INT = JSON_VALUE(@Json, '$.Payload.TeamID');
+            DECLARE @MJ_CorrectFlg BIT = JSON_VALUE(@Json, '$.Payload.CorrectFlg');
+            DECLARE @MJ_ExtraRunID INT = (SELECT TOP 1 id FROM [OP].[tblExtraRun] WHERE EventID = @EventID AND StatusCode = 'active' AND ExtraGameId = 'EG2');
+
+            IF @MJ_ExtraRunID IS NOT NULL AND @MJ_CorrectFlg = 1
+            BEGIN
+                IF EXISTS (SELECT 1 FROM [OP].[tblExtraScore] WHERE ExtraRunID = @MJ_ExtraRunID AND TeamID = @MJ_TeamID)
+                BEGIN
+                    UPDATE [OP].[tblExtraScore] SET Points = Points + 20 WHERE ExtraRunID = @MJ_ExtraRunID AND TeamID = @MJ_TeamID;
+                END
+                ELSE
+                BEGIN
+                    INSERT INTO [OP].[tblExtraScore] (ExtraRunID, TeamID, Points) VALUES (@MJ_ExtraRunID, @MJ_TeamID, 20);
+                END
+            END
+
             DECLARE @MJ_Ping NVARCHAR(MAX) = (SELECT @Action AS Action, @EventID AS EventID, (@CurrentStateVersion + 1) AS StateVersion FOR JSON PATH, WITHOUT_ARRAY_WRAPPER);
             INSERT INTO @SignalRTargets (TargetGroup, EventName, CustomPayload) VALUES 
                 ('event_' + CAST(@EventID AS VARCHAR) + '_gamer', @Action, @MJ_Ping),
