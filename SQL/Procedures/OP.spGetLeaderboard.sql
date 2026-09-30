@@ -5,7 +5,8 @@ ALTER PROCEDURE [OP].[spGetLeaderboard]
     @EventID BIGINT,
     @Board NVARCHAR(50),
     @UserID BIGINT = NULL,
-    @ExtraGameId NVARCHAR(50) = NULL
+    @ExtraGameId NVARCHAR(50) = NULL,
+    @RoundID INT = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -70,7 +71,7 @@ BEGIN
         JOIN [OP].[tblKabala] k ON t.KabalaID = k.id
         OUTER APPLY (
             SELECT SUM(rs.F) AS F FROM [OP].[tblRoundScore] rs WHERE rs.TeamID = t.id AND rs.RoundID IN (
-                SELECT id FROM [OP].[tblRound] WHERE EventID = @EventID AND RoundStatusID IN (SELECT StatusID FROM @StatusFilter)
+                SELECT id FROM [OP].[tblRound] WHERE EventID = @EventID AND RoundStatusID IN (SELECT StatusID FROM @StatusFilter) AND (@RoundID IS NULL OR id = @RoundID)
             )
         ) rs_agg
         LEFT JOIN [OP].[tblDisplayBoard] db ON db.TeamID = t.id AND db.Board = @Board AND db.EventID = @EventID

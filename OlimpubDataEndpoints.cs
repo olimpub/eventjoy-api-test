@@ -238,6 +238,13 @@ namespace EventJoy.Api
 
             string? rawExtra = queryDict["ExtraGameId"] ?? queryDict["extraGameId"] ?? queryDict["extragameid"];
             string? extraGameId = string.IsNullOrEmpty(rawExtra) ? null : rawExtra.Split(',')[0].Trim();
+            
+            string? rawRound = queryDict["RoundId"] ?? queryDict["roundId"] ?? queryDict["roundid"] ?? queryDict["RoundID"];
+            int? roundId = null;
+            if (!string.IsNullOrEmpty(rawRound) && int.TryParse(rawRound.Split(',')[0].Trim(), out int parsedRoundId))
+            {
+                roundId = parsedRoundId;
+            }
 
             try
             {
@@ -255,6 +262,10 @@ namespace EventJoy.Api
                         if (!string.IsNullOrEmpty(extraGameId))
                         {
                             cmd.Parameters.AddWithValue("@ExtraGameId", extraGameId);
+                        }
+                        if (roundId.HasValue)
+                        {
+                            cmd.Parameters.AddWithValue("@RoundID", roundId.Value);
                         }
 
                         using (var reader = await cmd.ExecuteReaderAsync())
