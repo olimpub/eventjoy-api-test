@@ -480,7 +480,7 @@ ELSE IF @Action = N'Op.ShowLeaderboard'
                 THROW 50035, N'Még van nyitott vagy indítatlan kérdés a fordulóban!', 1;
             END
             
-            -- Calculate Round Scores
+            -- Calculate Round Scores for Teams
             DECLARE @N INT = (SELECT COUNT(*) FROM [OP].[tblTeam] WHERE EventID = @EventID AND ActiveFlg = 1);
             IF @N = 0 SET @N = 1;
             
@@ -514,6 +514,41 @@ ELSE IF @Action = N'Op.ShowLeaderboard'
             FROM #CR_TeamScores;
             
             DROP TABLE #CR_TeamScores;
+            
+            -- Calculate Round Scores for Individuals (Shadow)
+            DECLARE @N_indiv INT = (SELECT COUNT(*) FROM [EJ].[tblEventUser] WHERE EventID = @EventID AND ActiveFlg = 1);
+            IF @N_indiv = 0 SET @N_indiv = 1;
+            
+            DECLARE @P_max_indiv FLOAT = 100.0;
+            DECLARE @P_min_indiv FLOAT = CASE WHEN @N_indiv <= 5 THEN 50.0 WHEN @N_indiv <= 10 THEN 40.0 WHEN @N_indiv <= 20 THEN 30.0 ELSE 20.0 END;
+            
+            SELECT 
+                eu.id AS EventUserID,
+                ISNULL(SUM(ss.S), 0) AS RawSSum,
+                RANK() OVER (ORDER BY ISNULL(SUM(ss.S), 0) DESC) AS Place
+            INTO #CR_ShadowScores
+            FROM [EJ].[tblEventUser] eu
+            LEFT JOIN [OP].[tblShadowScore] ss ON eu.id = ss.EventUserID AND ss.EventQuestionID IN (
+                SELECT id FROM [OP].[tblEventQuestion] WHERE RoundID = @CR_RoundID AND ActiveFlg = 1
+            )
+            WHERE eu.EventID = @EventID AND eu.ActiveFlg = 1
+            GROUP BY eu.id;
+            
+            DELETE FROM [OP].[tblShadowRoundScore] WHERE RoundID = @CR_RoundID;
+            
+            INSERT INTO [OP].[tblShadowRoundScore] (RoundID, EventUserID, RawSSum, Place, F)
+            SELECT 
+                @CR_RoundID,
+                EventUserID,
+                RawSSum,
+                Place,
+                CASE 
+                    WHEN @N_indiv = 1 THEN @P_max_indiv
+                    ELSE ROUND(@P_min_indiv + (@P_max_indiv - @P_min_indiv) * CAST((@N_indiv - Place) AS FLOAT) / CAST((@N_indiv - 1) AS FLOAT), 0)
+                END AS F
+            FROM #CR_ShadowScores;
+            
+            DROP TABLE #CR_ShadowScores;
             
             DECLARE @ClosedStatusID INT = (SELECT id FROM [OP].[tblRoundStatus] WHERE Code = 'closed');
             UPDATE [OP].[tblRound] SET RoundStatusID = @ClosedStatusID WHERE id = @CR_RoundID AND EventID = @EventID;
@@ -585,6 +620,7 @@ ELSE IF @Action = N'Op.JoinTeam'
             
             -- Delete round scores
             DELETE FROM [OP].[tblRoundScore] WHERE RoundID = @ResetRoundID;
+            DELETE FROM [OP].[tblShadowRoundScore] WHERE RoundID = @ResetRoundID;
             
             -- Reset all questions in this round
             UPDATE [OP].[tblEventQuestion] 

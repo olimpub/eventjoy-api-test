@@ -126,19 +126,18 @@ BEGIN
         SELECT 
             eu.id AS EventUserID,
             ISNULL(u.Nickname, LTRIM(RTRIM(CONCAT(u.FirstName, ' ', u.LastName)))) AS Name,
-            ISNULL(SUM(ss.S), 0) AS Points,
+            ISNULL(srs_agg.F, 0) AS Points,
             ISNULL(db.PreviousPoints, 0) AS PreviousPoints,
-            RANK() OVER (ORDER BY ISNULL(SUM(ss.S), 0) DESC) AS Place
+            RANK() OVER (ORDER BY ISNULL(srs_agg.F, 0) DESC) AS Place
         FROM [EJ].[tblEventUser] eu
         JOIN [EJ].[tblUser] u ON eu.UserID = u.id
-        LEFT JOIN [OP].[tblShadowScore] ss ON ss.EventUserID = eu.id AND ss.EventQuestionID IN (
-            SELECT eq.id FROM [OP].[tblEventQuestion] eq 
-            JOIN [OP].[tblRound] r ON eq.RoundID = r.id 
-            WHERE r.EventID = @EventID
-        )
+        OUTER APPLY (
+            SELECT SUM(srs.F) AS F FROM [OP].[tblShadowRoundScore] srs WHERE srs.EventUserID = eu.id AND srs.RoundID IN (
+                SELECT id FROM [OP].[tblRound] WHERE EventID = @EventID AND RoundStatusID IN (SELECT StatusID FROM @StatusFilter)
+            )
+        ) srs_agg
         LEFT JOIN [OP].[tblDisplayBoard] db ON db.TeamID = eu.id AND db.Board = @Board AND db.EventID = @EventID
         WHERE eu.EventID = @EventID AND eu.ActiveFlg = 1
-        GROUP BY eu.id, u.Nickname, u.FirstName, u.LastName, db.PreviousPoints
         ORDER BY Place ASC;
     END
 END
