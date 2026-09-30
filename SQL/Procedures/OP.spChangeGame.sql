@@ -60,10 +60,11 @@ BEGIN
                 ('event_' + CAST(@EventID AS VARCHAR) + '_gamemaster', @Action, @PingPayload),
                 ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', @Action, @PingPayload);
         END
-        ELSE IF @Action = N'Op.StartQuestion'
+                ELSE IF @Action = N'Op.StartQuestion'
         BEGIN
             DECLARE @EventQuestionID INT = JSON_VALUE(@Json, '$.Payload.EventQuestionID');
             UPDATE [OP].[tblEventQuestion] SET StatusCode = 'active', StartedAtUtc = @Now WHERE id = @EventQuestionID AND EventID = @EventID;
+            UPDATE [OP].[tblRound] SET FocusedEventQuestionID = @EventQuestionID WHERE id = (SELECT RoundID FROM [OP].[tblEventQuestion] WHERE id = @EventQuestionID);
 
             DECLARE @SQPing NVARCHAR(MAX) = (SELECT @Action AS Action, @EventID AS EventID, (@CurrentStateVersion + 1) AS StateVersion FOR JSON PATH, WITHOUT_ARRAY_WRAPPER);
             INSERT INTO @SignalRTargets (TargetGroup, EventName, CustomPayload) VALUES 
@@ -71,7 +72,7 @@ BEGIN
                 ('event_' + CAST(@EventID AS VARCHAR) + '_gamemaster', @Action, @SQPing),
                 ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', @Action, @SQPing);
         END
-        ELSE IF @Action = N'Op.StopQuestion'
+ELSE IF @Action = N'Op.StopQuestion'
 
         BEGIN
             DECLARE @StopEventQuestionID INT = JSON_VALUE(@Json, '$.Payload.EventQuestionID');
@@ -164,10 +165,26 @@ BEGIN
             SELECT TargetGroup, EventName, CustomPayload AS PayloadJson FROM @SignalRTargets;
             RETURN;
         END
-ELSE IF @Action = N'Op.NextQuestion'
+        ELSE IF @Action = N'Op.NextQuestion'
         BEGIN
             DECLARE @NQ_RoundID INT = JSON_VALUE(@Json, '$.Payload.RoundID');
-            -- Csak StateVersion-t növelünk, hogy a kliensek lehúzzák az új OpLive-ot
+            
+            IF EXISTS (SELECT 1 FROM [OP].[tblEventQuestion] WHERE RoundID = @NQ_RoundID AND StatusCode = 'active' AND ActiveFlg = 1)
+            BEGIN
+                THROW 50036, N'Előbb állítsd meg az aktuális kérdést!', 1;
+            END
+            
+            DECLARE @NextQuestionID INT = (SELECT TOP 1 id FROM [OP].[tblEventQuestion] WHERE RoundID = @NQ_RoundID AND StatusCode = 'pending' AND ActiveFlg = 1 ORDER BY SortIndex ASC);
+            
+            IF @NextQuestionID IS NOT NULL
+            BEGIN
+                UPDATE [OP].[tblRound] SET FocusedEventQuestionID = @NextQuestionID WHERE id = @NQ_RoundID;
+            END
+            ELSE
+            BEGIN
+                THROW 50037, N'A kérdéskör véget ért.', 1;
+            END
+
             DECLARE @NQ_Ping NVARCHAR(MAX) = (SELECT @Action AS Action, @EventID AS EventID, (@CurrentStateVersion + 1) AS StateVersion FOR JSON PATH, WITHOUT_ARRAY_WRAPPER);
             INSERT INTO @SignalRTargets (TargetGroup, EventName, CustomPayload) VALUES 
                 ('event_' + CAST(@EventID AS VARCHAR) + '_gamer', @Action, @NQ_Ping),
@@ -182,6 +199,7 @@ ELSE IF @Action = N'Op.NextQuestion'
             DELETE FROM [OP].[tblShadowScore] WHERE EventQuestionID = @RQ_EQID;
 
             UPDATE [OP].[tblEventQuestion] SET StatusCode = 'active', StartedAtUtc = @Now, StoppedAtUtc = NULL WHERE id = @RQ_EQID;
+            UPDATE [OP].[tblRound] SET FocusedEventQuestionID = @RQ_EQID WHERE id = (SELECT RoundID FROM [OP].[tblEventQuestion] WHERE id = @RQ_EQID);
 
             DECLARE @RQPing NVARCHAR(MAX) = (SELECT @Action AS Action, @EventID AS EventID, (@CurrentStateVersion + 1) AS StateVersion FOR JSON PATH, WITHOUT_ARRAY_WRAPPER);
             INSERT INTO @SignalRTargets (TargetGroup, EventName, CustomPayload) VALUES 
@@ -189,7 +207,7 @@ ELSE IF @Action = N'Op.NextQuestion'
                 ('event_' + CAST(@EventID AS VARCHAR) + '_gamemaster', @Action, @RQPing),
                 ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', @Action, @RQPing);
         END
-                ELSE IF @Action = N'Op.CastDisplay'
+ELSE IF @Action = N'Op.CastDisplay'
         BEGIN
             DECLARE @Face NVARCHAR(50) = JSON_VALUE(@Json, '$.Payload.Face');
             DECLARE @PayloadJsonObj NVARCHAR(MAX) = JSON_QUERY(@Json, '$.Payload');
@@ -256,9 +274,15 @@ ELSE IF @Action = N'Op.ShowLeaderboard'
                 ('event_' + CAST(@EventID AS VARCHAR) + '_gamemaster', @Action, @LbdPayload),
                 ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', @Action, @LbdPayload);
         END
-ELSE IF @Action = N'Op.CloseRound'
+        ELSE IF @Action = N'Op.CloseRound'
         BEGIN
             DECLARE @CR_RoundID INT = JSON_VALUE(@Json, '$.Payload.RoundID');
+            
+            IF EXISTS (SELECT 1 FROM [OP].[tblEventQuestion] WHERE RoundID = @CR_RoundID AND StatusCode != 'stopped' AND ActiveFlg = 1)
+            BEGIN
+                THROW 50035, N'Még van nyitott vagy indítatlan kérdés a fordulóban!', 1;
+            END
+            
             DECLARE @ClosedStatusID INT = (SELECT id FROM [OP].[tblRoundStatus] WHERE Code = 'closed');
             UPDATE [OP].[tblRound] SET RoundStatusID = @ClosedStatusID WHERE id = @CR_RoundID AND EventID = @EventID;
             
@@ -268,7 +292,7 @@ ELSE IF @Action = N'Op.CloseRound'
                 ('event_' + CAST(@EventID AS VARCHAR) + '_gamemaster', @Action, @CRPing),
                 ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', @Action, @CRPing);
         END
-                ELSE IF @Action = N'Op.JoinTeam'
+ELSE IF @Action = N'Op.JoinTeam'
         BEGIN
             DECLARE @JT_TeamID INT = JSON_VALUE(@Json, '$.Payload.TeamID');
             

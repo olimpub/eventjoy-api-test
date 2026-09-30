@@ -95,7 +95,7 @@ BEGIN
     WHERE r.EventID = @EventID AND eq.ActiveFlg = 1
       AND (@IsQM = 1 OR @IsOrg = 1 OR eq.StatusCode IN ('active', 'stopped'));
 
-    -- Dataset: OpLive (1 sor)
+            -- Dataset: OpLive (1 sor)
     SELECT 'OpLive' AS DatasetName;
     SELECT TOP 1
         es.StateVersion,
@@ -109,12 +109,13 @@ BEGIN
         eq.TimeSec,
         eq.StoppedAtUtc
     FROM [OP].[tblEventSettings] es
-    LEFT JOIN [OP].[tblEventQuestion] eq ON eq.StatusCode IN ('active', 'pending') AND eq.ActiveFlg = 1 
-         AND eq.RoundID IN (SELECT id FROM [OP].[tblRound] WHERE EventID = @EventID AND ActiveFlg = 1 AND RoundStatusID = (SELECT id FROM [OP].[tblRoundStatus] WHERE Code = 'active'))
-    WHERE es.EventID = @EventID
-    ORDER BY eq.StatusCode ASC;
+    LEFT JOIN [OP].[tblRound] rActive ON rActive.EventID = @EventID AND rActive.ActiveFlg = 1 AND rActive.RoundStatusID = (SELECT id FROM [OP].[tblRoundStatus] WHERE Code = 'active')
+    LEFT JOIN [OP].[tblEventQuestion] eq ON eq.id = ISNULL(rActive.FocusedEventQuestionID, (
+        SELECT TOP 1 id FROM [OP].[tblEventQuestion] WHERE RoundID = rActive.id AND ActiveFlg = 1 ORDER BY CASE StatusCode WHEN 'active' THEN 1 WHEN 'stopped' THEN 2 ELSE 3 END ASC, SortIndex ASC
+    ))
+    WHERE es.EventID = @EventID;
 
-    -- Dataset: DisplayCast (1 sor)
+-- Dataset: DisplayCast (1 sor)
     SELECT 'DisplayCast' AS DatasetName;
     SELECT 
         Face, PayloadJson, StateVersion, UpdatedAtUtc
