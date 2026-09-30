@@ -65,6 +65,9 @@ BEGIN
             Prompt NVARCHAR(MAX),
             TimeSec INT,
             SortIndex INT,
+            ImageKey NVARCHAR(MAX),
+            AudioKey NVARCHAR(MAX),
+            MediaUrl NVARCHAR(MAX),
             Answer1 NVARCHAR(MAX), Match1 NVARCHAR(MAX), IsCorrect1 BIT,
             Answer2 NVARCHAR(MAX), Match2 NVARCHAR(MAX), IsCorrect2 BIT,
             Answer3 NVARCHAR(MAX), Match3 NVARCHAR(MAX), IsCorrect3 BIT,
@@ -77,6 +80,7 @@ BEGIN
         
         INSERT INTO #IncomingQuestions (
             NewQuestionID, TypeCode, Prompt, TimeSec, SortIndex,
+            ImageKey, AudioKey, MediaUrl,
             Answer1, Match1, IsCorrect1, Answer2, Match2, IsCorrect2,
             Answer3, Match3, IsCorrect3, Answer4, Match4, IsCorrect4,
             Answer5, Match5, IsCorrect5, Answer6, Match6, IsCorrect6,
@@ -84,6 +88,7 @@ BEGIN
         )
         SELECT 
             @QuestionID, COALESCE(TypeCode, [Type]), Prompt, ISNULL(TimeSec, 0), SortIndex,
+            ImageKey, AudioKey, MediaUrl,
             Answer1, Match1, CAST(IsCorrect1 AS BIT), Answer2, Match2, CAST(IsCorrect2 AS BIT),
             Answer3, Match3, CAST(IsCorrect3 AS BIT), Answer4, Match4, CAST(IsCorrect4 AS BIT),
             Answer5, Match5, CAST(IsCorrect5 AS BIT), Answer6, Match6, CAST(IsCorrect6 AS BIT),
@@ -95,6 +100,9 @@ BEGIN
             Prompt NVARCHAR(MAX) '$.Prompt',
             TimeSec INT '$.TimeSec',
             SortIndex INT '$.SortIndex',
+            ImageKey NVARCHAR(MAX) '$.ImageKey',
+            AudioKey NVARCHAR(MAX) '$.AudioKey',
+            MediaUrl NVARCHAR(MAX) '$.MediaUrl',
             Answer1 NVARCHAR(MAX) '$.Answer1', Match1 NVARCHAR(MAX) '$.Match1', IsCorrect1 BIT '$.IsCorrect1',
             Answer2 NVARCHAR(MAX) '$.Answer2', Match2 NVARCHAR(MAX) '$.Match2', IsCorrect2 BIT '$.IsCorrect2',
             Answer3 NVARCHAR(MAX) '$.Answer3', Match3 NVARCHAR(MAX) '$.Match3', IsCorrect3 BIT '$.IsCorrect3',
@@ -108,11 +116,17 @@ BEGIN
         DECLARE @NewPrompt NVARCHAR(MAX) = (SELECT Prompt FROM #IncomingQuestions);
         DECLARE @NewTimeSec INT = (SELECT TimeSec FROM #IncomingQuestions);
         DECLARE @NewSortIndex INT = (SELECT SortIndex FROM #IncomingQuestions);
+        DECLARE @NewImageKey NVARCHAR(MAX) = (SELECT ImageKey FROM #IncomingQuestions);
+        DECLARE @NewAudioKey NVARCHAR(MAX) = (SELECT AudioKey FROM #IncomingQuestions);
+        DECLARE @NewMediaUrl NVARCHAR(MAX) = (SELECT MediaUrl FROM #IncomingQuestions);
         
         -- 2. Update tblQuestion
         UPDATE [OP].[tblQuestion]
         SET Prompt = @NewPrompt,
             TimeSec = @NewTimeSec,
+            ImageKey = @NewImageKey,
+            AudioKey = @NewAudioKey,
+            MediaUrl = @NewMediaUrl,
             LastCreatedUserID = @UserID
         WHERE id = @QuestionID;
         
@@ -133,7 +147,8 @@ BEGIN
             
             UPDATE [OP].[tblExtraQuestion]
             SET TimeSec = @NewTimeSec,
-                Prompt = @NewPrompt
+                Prompt = @NewPrompt,
+                MediaUrl = @NewMediaUrl
             WHERE ExtraRunID IN (SELECT id FROM [OP].[tblExtraRun] WHERE EventID = @EventID AND StatusCode = 'active' AND ExtraGameId = @ExtraGameId)
               AND SortIndex = (SELECT SortIndex FROM [OP].[tblEventExtraQuestion] WHERE id = @EventExtraQuestionID)
               AND StatusCode = 'pending';
