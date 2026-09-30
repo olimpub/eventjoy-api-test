@@ -676,7 +676,37 @@ ELSE IF @Action = N'Op.JoinTeam'
                     ('event_' + CAST(@EventID AS VARCHAR) + '_display', @Action, @JTPing);
             END
         END
-                ELSE IF @Action = N'Op.ResetRound'
+                        ELSE IF @Action = N'Op.ResetExtra'
+        BEGIN
+            DECLARE @ResetExtraRunID INT = JSON_VALUE(@Json, '$.Payload.ExtraRunID');
+            IF @ResetExtraRunID IS NULL SET @ResetExtraRunID = JSON_VALUE(@Json, '$.Payload.ExtraRunId');
+            
+            -- Delete answer items
+            DELETE FROM [OP].[tblExtraAnswerItem] WHERE ExtraAnswerID IN (SELECT id FROM [OP].[tblExtraAnswer] WHERE ExtraQuestionID IN (SELECT id FROM [OP].[tblExtraQuestion] WHERE ExtraRunID = @ResetExtraRunID));
+
+            -- Delete all answers for this run
+            DELETE FROM [OP].[tblExtraAnswer] WHERE ExtraQuestionID IN (SELECT id FROM [OP].[tblExtraQuestion] WHERE ExtraRunID = @ResetExtraRunID);
+            
+            -- Delete all extra scores for this run
+            DELETE FROM [OP].[tblExtraScore] WHERE ExtraRunID = @ResetExtraRunID;
+            
+            -- Reset all questions in this run
+            UPDATE [OP].[tblExtraQuestion] 
+            SET StatusCode = 'pending', StartedAtUtc = NULL, StoppedAtUtc = NULL 
+            WHERE ExtraRunID = @ResetExtraRunID;
+            
+            -- Reset run status to active
+            UPDATE [OP].[tblExtraRun] 
+            SET StatusCode = 'active', ClosedAtUtc = NULL 
+            WHERE id = @ResetExtraRunID AND EventID = @EventID;
+            
+            DECLARE @REPing NVARCHAR(MAX) = (SELECT @Action AS Action, @EventID AS EventID, (@CurrentStateVersion + 1) AS StateVersion FOR JSON PATH, WITHOUT_ARRAY_WRAPPER);
+            INSERT INTO @SignalRTargets (TargetGroup, EventName, CustomPayload) VALUES 
+                ('event_' + CAST(@EventID AS VARCHAR) + '_gamer', @Action, @REPing),
+                ('event_' + CAST(@EventID AS VARCHAR) + '_gamemaster', @Action, @REPing),
+                ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', @Action, @REPing);
+        END
+        ELSE IF @Action = N'Op.ResetRound'
         BEGIN
             DECLARE @ResetRoundID INT = JSON_VALUE(@Json, '$.Payload.RoundID');
             IF @ResetRoundID IS NULL SET @ResetRoundID = JSON_VALUE(@Json, '$.Payload.RoundId');
