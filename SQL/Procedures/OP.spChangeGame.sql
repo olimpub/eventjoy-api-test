@@ -76,7 +76,7 @@ ELSE IF @Action = N'Op.StopQuestion'
 
         BEGIN
             DECLARE @StopEventQuestionID INT = JSON_VALUE(@Json, '$.Payload.EventQuestionID');
-            UPDATE [OP].[tblEventQuestion] SET StatusCode = 'stopped', StoppedAtUtc = @Now WHERE id = @StopEventQuestionID AND EventID = @EventID;
+            UPDATE [OP].[tblEventQuestion] SET StatusCode = 'stopped', StoppedAtUtc = @Now, ClockPaused = 0, ClockLeftMs = NULL WHERE id = @StopEventQuestionID AND EventID = @EventID;
 
 
             DECLARE @TimeSec INT, @StartedAtUtc DATETIMEOFFSET, @TypeCode NVARCHAR(16);
@@ -150,6 +150,12 @@ ELSE IF @Action = N'Op.StopQuestion'
                 THROW 50030, N'A kérdés már lezárult vagy nem aktív, nem lehet válaszolni!', 1;
             END
 
+            
+            IF EXISTS (SELECT 1 FROM [OP].[tblEventQuestion] WHERE id = @SubmitEQID AND ClockPaused = 1)
+            BEGIN
+                THROW 50032, N'A kérdés szünetel, nem küldhetsz választ!', 1;
+            END
+
             -- Check Team
             IF EXISTS (SELECT 1 FROM [OP].[tblTeam] WHERE EventID = @EventID AND ActiveFlg = 1)
                AND NOT EXISTS (SELECT 1 FROM [OP].[tblTeamMember] WHERE EventUserID = @EventUser AND ActiveFlg = 1)
@@ -219,7 +225,7 @@ ELSE IF @Action = N'Op.NextQuestion'
             DELETE FROM [OP].[tblQuestionScore] WHERE EventQuestionID = @RQ_EQID;
             DELETE FROM [OP].[tblShadowScore] WHERE EventQuestionID = @RQ_EQID;
 
-            UPDATE [OP].[tblEventQuestion] SET StatusCode = 'active', StartedAtUtc = @Now, StoppedAtUtc = NULL WHERE id = @RQ_EQID;
+            UPDATE [OP].[tblEventQuestion] SET StatusCode = 'active', StartedAtUtc = @Now, StoppedAtUtc = NULL, ClockPaused = 0, ClockLeftMs = NULL WHERE id = @RQ_EQID;
             UPDATE [OP].[tblRound] SET FocusedEventQuestionID = @RQ_EQID WHERE id = (SELECT RoundID FROM [OP].[tblEventQuestion] WHERE id = @RQ_EQID);
 
             DECLARE @RQPing NVARCHAR(MAX) = (SELECT @Action AS Action, @EventID AS EventID, (@CurrentStateVersion + 1) AS StateVersion FOR JSON PATH, WITHOUT_ARRAY_WRAPPER);
@@ -228,7 +234,37 @@ ELSE IF @Action = N'Op.NextQuestion'
                 ('event_' + CAST(@EventID AS VARCHAR) + '_gamemaster', @Action, @RQPing),
                 ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', @Action, @RQPing);
         END
-ELSE IF @Action = N'Op.CastDisplay'
+        ELSE IF @Action = N'Op.PauseQuestion'
+        BEGIN
+            DECLARE @PQ_EQID INT = JSON_VALUE(@Json, '$.Payload.EventQuestionID');
+            DECLARE @PQ_Hold BIT = JSON_VALUE(@Json, '$.Payload.Hold');
+            DECLARE @PQ_LeftMs INT = JSON_VALUE(@Json, '$.Payload.LeftMs');
+            
+            IF NOT EXISTS (SELECT 1 FROM [OP].[tblEventQuestion] WHERE id = @PQ_EQID AND StatusCode = 'active' AND ActiveFlg = 1)
+            BEGIN
+                THROW 50030, N'A kérdés nem aktív.', 1;
+            END
+
+            IF @PQ_Hold = 1
+            BEGIN
+                UPDATE [OP].[tblEventQuestion] SET ClockPaused = 1, ClockLeftMs = @PQ_LeftMs WHERE id = @PQ_EQID;
+            END
+            ELSE
+            BEGIN
+                DECLARE @PQ_TimeSec INT = (SELECT TimeSec FROM [OP].[tblEventQuestion] WHERE id = @PQ_EQID);
+                DECLARE @PQ_ElapsedMs INT = (@PQ_TimeSec * 1000) - @PQ_LeftMs;
+                DECLARE @PQ_NewStartedAt DATETIMEOFFSET = DATEADD(MILLISECOND, -@PQ_ElapsedMs, @Now);
+                
+                UPDATE [OP].[tblEventQuestion] SET ClockPaused = 0, ClockLeftMs = NULL, StartedAtUtc = @PQ_NewStartedAt WHERE id = @PQ_EQID;
+            END
+
+            DECLARE @PQPing NVARCHAR(MAX) = (SELECT @Action AS Action, @EventID AS EventID, (@CurrentStateVersion + 1) AS StateVersion FOR JSON PATH, WITHOUT_ARRAY_WRAPPER);
+            INSERT INTO @SignalRTargets (TargetGroup, EventName, CustomPayload) VALUES 
+                ('event_' + CAST(@EventID AS VARCHAR) + '_gamer', @Action, @PQPing),
+                ('event_' + CAST(@EventID AS VARCHAR) + '_gamemaster', @Action, @PQPing),
+                ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', @Action, @PQPing);
+        END
+        ELSE IF @Action = N'Op.CastDisplay'
         BEGIN
             DECLARE @Face NVARCHAR(50) = JSON_VALUE(@Json, '$.Payload.Face');
             DECLARE @PayloadJsonObj NVARCHAR(MAX) = JSON_QUERY(@Json, '$.Payload');

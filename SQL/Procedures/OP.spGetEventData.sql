@@ -79,7 +79,7 @@ BEGIN
     -- Dataset: OpEventQuestions
     SELECT 'OpEventQuestions' AS DatasetName;
     SELECT 
-        eq.id, eq.RoundID, eq.QuestionID, eq.SortIndex, eq.StatusCode, eq.StartedAtUtc, eq.TimeSec,
+        eq.id, eq.RoundID, eq.QuestionID, eq.SortIndex, eq.StatusCode, eq.StartedAtUtc, eq.TimeSec, eq.ClockPaused, eq.ClockLeftMs,
         q.Prompt, q.MediaUrl, q.ImageKey, q.AudioKey, qt.Code AS TypeCode,
         (SELECT id, ListType, Value, SortIndex FROM [OP].[tblQuestionOption] WHERE QuestionID = q.id ORDER BY SortIndex FOR JSON PATH) AS OptionsJson,
         CASE 
@@ -107,7 +107,9 @@ BEGIN
         (SELECT COUNT(DISTINCT tm.EventUserID) FROM [OP].[tblTeamMember] tm JOIN [OP].[tblTeam] t ON tm.TeamID = t.id WHERE t.EventID = @EventID AND t.ActiveFlg = 1 AND tm.ActiveFlg = 1) AS RosterCount,
         eq.StartedAtUtc,
         eq.TimeSec,
-        eq.StoppedAtUtc
+        eq.StoppedAtUtc,
+        eq.ClockPaused,
+        eq.ClockLeftMs
     FROM [OP].[tblEventSettings] es
     LEFT JOIN [OP].[tblRound] rActive ON rActive.EventID = @EventID AND rActive.ActiveFlg = 1 AND rActive.RoundStatusID = (SELECT id FROM [OP].[tblRoundStatus] WHERE Code = 'active')
     LEFT JOIN [OP].[tblEventQuestion] eq ON eq.id = ISNULL(rActive.FocusedEventQuestionID, (
