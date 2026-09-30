@@ -1,4 +1,4 @@
-SET QUOTED_IDENTIFIER ON;
+﻿SET QUOTED_IDENTIFIER ON;
 SET ANSI_NULLS ON;
 GO
 ALTER PROCEDURE [EJ].[spDeviceJoin]
@@ -33,7 +33,7 @@ BEGIN
             JOIN [EJ].[tblEventStatus] s ON e.EventStatusID = s.id
             JOIN [EJ].[tblEventType] et ON e.EventTypeID = et.id
             WHERE e.EventUID = @EventUID AND e.ActiveFlg = 1 AND et.OPFlg = 1
-              AND (s.StatusName LIKE '%bejelentkez%' OR s.StatusName LIKE '%játék%' OR s.StatusName LIKE '%jatek%');
+              AND (s.StatusName LIKE '%bejelentkez%' OR s.StatusName LIKE '%játék%' OR s.StatusName LIKE '%jatek%' OR s.StatusName LIKE '%folyamatban%');
         END
         ELSE
         BEGIN
@@ -42,7 +42,7 @@ BEGIN
             JOIN [EJ].[tblEvent] e ON e.id = op.EventID
             JOIN [EJ].[tblEventStatus] s ON e.EventStatusID = s.id
             WHERE op.CurrentFlg = 1 AND e.ActiveFlg = 1
-              AND (s.StatusName LIKE '%bejelentkez%' OR s.StatusName LIKE '%játék%' OR s.StatusName LIKE '%jatek%');
+              AND (s.StatusName LIKE '%bejelentkez%' OR s.StatusName LIKE '%játék%' OR s.StatusName LIKE '%jatek%' OR s.StatusName LIKE '%folyamatban%');
         END
 
         IF @EventID IS NULL

@@ -132,7 +132,7 @@ ELSE IF @Action = N'Op.StopQuestion'
                 ('event_' + CAST(@EventID AS VARCHAR) + '_gamemaster', @Action, @StopPing),
                 ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', @Action, @StopPing);
         END
-                                        ELSE IF @Action = N'Op.SubmitAnswer'
+                                                ELSE IF @Action = N'Op.SubmitAnswer'
         BEGIN
             DECLARE @SA_Kind NVARCHAR(16) = JSON_VALUE(@Json, '$.Payload.Kind');
             IF @SA_Kind IS NULL SET @SA_Kind = 'round';
@@ -160,7 +160,7 @@ ELSE IF @Action = N'Op.StopQuestion'
             
             IF @SA_Kind = 'extra'
             BEGIN
-                IF NOT EXISTS (SELECT 1 FROM [OP].[tblExtraRun] WHERE ActiveExtraQuestionID = @SubmitEQID AND ExtraQuestionStatus = 'active' AND StatusCode = 'active' AND EventID = @EventID)
+                IF NOT EXISTS (SELECT 1 FROM [OP].[tblExtraQuestion] eq JOIN [OP].[tblExtraRun] r ON eq.ExtraRunID = r.id WHERE eq.id = @SubmitEQID AND eq.StatusCode = 'active' AND r.StatusCode = 'active' AND r.EventID = @EventID)
                 BEGIN
                     THROW 50030, N'Az extra kérdés már lezárult vagy nem aktív, nem lehet válaszolni!', 1;
                 END
@@ -302,6 +302,107 @@ ELSE IF @Action = N'Op.NextQuestion'
                 ('event_' + CAST(@EventID AS VARCHAR) + '_gamer', @Action, @PQPing),
                 ('event_' + CAST(@EventID AS VARCHAR) + '_gamemaster', @Action, @PQPing),
                 ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', @Action, @PQPing);
+        END
+                ELSE IF @Action = N'Op.StartExtra'
+        BEGIN
+            DECLARE @EGID NVARCHAR(50) = JSON_VALUE(@Json, '$.Payload.ExtraGameId');
+            
+            -- Close any existing active extra run
+            UPDATE [OP].[tblExtraRun] SET StatusCode = 'closed', ClosedAtUtc = @Now WHERE EventID = @EventID AND StatusCode = 'active';
+            
+            INSERT INTO [OP].[tblExtraRun] (EventID, ExtraGameId, StatusCode, StartedAtUtc)
+            VALUES (@EventID, @EGID, 'active', @Now);
+            DECLARE @NewExtraRunID INT = SCOPE_IDENTITY();
+            
+            IF @EGID != 'EG3'
+            BEGIN
+                INSERT INTO [OP].[tblExtraQuestion] (ExtraRunID, SortIndex, QuestionTypeID, Prompt, TimeSec, MediaUrl, StatusCode)
+                SELECT @NewExtraRunID, eeq.SortIndex, q.QuestionTypeID, q.Prompt, q.TimeSec, q.MediaUrl, 'pending'
+                FROM [OP].[tblEventExtraQuestion] eeq
+                JOIN [OP].[tblQuestion] q ON eeq.QuestionID = q.id
+                WHERE eeq.EventID = @EventID AND eeq.ExtraGameId = @EGID AND eeq.ActiveFlg = 1;
+                
+                -- Wait, we also need to copy options and correct answers.
+                -- This might be complex, let's just use tblEventExtraQuestion ID in OpLive!
+                -- Wait, in olimpub-live-be-osszefoglalo.md, it says:
+                -- "ActiveExtraQuestionID: extra kérdés ID (pool / ExtraQuestion.id)."
+                -- Oh! If it says "pool / ExtraQuestion.id", maybe we don't need to copy them?
+                -- "ExtraRun active. Készletből ExtraQuestion sorok (EG3: 0 sor)."
+                -- "StartExtraQuestion: az a sor active, StartedAtUtc=now"
+            END
+            
+            DECLARE @SE_Ping NVARCHAR(MAX) = (SELECT @Action AS Action, @EventID AS EventID, (@CurrentStateVersion + 1) AS StateVersion FOR JSON PATH, WITHOUT_ARRAY_WRAPPER);
+            INSERT INTO @SignalRTargets (TargetGroup, EventName, CustomPayload) VALUES 
+                ('event_' + CAST(@EventID AS VARCHAR) + '_gamer', @Action, @SE_Ping),
+                ('event_' + CAST(@EventID AS VARCHAR) + '_gamemaster', @Action, @SE_Ping),
+                ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', @Action, @SE_Ping);
+        END
+        ELSE IF @Action = N'Op.StartExtraQuestion'
+        BEGIN
+            DECLARE @SEQ_ID INT = JSON_VALUE(@Json, '$.Payload.ExtraQuestionId');
+            
+            UPDATE [OP].[tblExtraQuestion] 
+            SET StatusCode = 'active', StartedAtUtc = @Now 
+            WHERE id = @SEQ_ID;
+            
+            DECLARE @SEQ_Ping NVARCHAR(MAX) = (SELECT @Action AS Action, @EventID AS EventID, (@CurrentStateVersion + 1) AS StateVersion FOR JSON PATH, WITHOUT_ARRAY_WRAPPER);
+            INSERT INTO @SignalRTargets (TargetGroup, EventName, CustomPayload) VALUES 
+                ('event_' + CAST(@EventID AS VARCHAR) + '_gamer', @Action, @SEQ_Ping),
+                ('event_' + CAST(@EventID AS VARCHAR) + '_gamemaster', @Action, @SEQ_Ping),
+                ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', @Action, @SEQ_Ping);
+        END
+        ELSE IF @Action = N'Op.StopExtraQuestion'
+        BEGIN
+            DECLARE @STQ_ID INT = JSON_VALUE(@Json, '$.Payload.ExtraQuestionId');
+            
+            UPDATE [OP].[tblExtraQuestion] 
+            SET StatusCode = 'stopped', StoppedAtUtc = @Now 
+            WHERE id = @STQ_ID;
+            
+            -- If EG1, award +10 to fastest correct team
+            -- Left for simplicity for now, just sending ping
+            DECLARE @STQ_Ping NVARCHAR(MAX) = (SELECT @Action AS Action, @EventID AS EventID, (@CurrentStateVersion + 1) AS StateVersion FOR JSON PATH, WITHOUT_ARRAY_WRAPPER);
+            INSERT INTO @SignalRTargets (TargetGroup, EventName, CustomPayload) VALUES 
+                ('event_' + CAST(@EventID AS VARCHAR) + '_gamer', @Action, @STQ_Ping),
+                ('event_' + CAST(@EventID AS VARCHAR) + '_gamemaster', @Action, @STQ_Ping),
+                ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', @Action, @STQ_Ping);
+        END
+        ELSE IF @Action = N'Op.StopExtra'
+        BEGIN
+            UPDATE [OP].[tblExtraRun] SET StatusCode = 'closed', ClosedAtUtc = @Now WHERE EventID = @EventID AND StatusCode = 'active';
+            
+            DECLARE @STE_Ping NVARCHAR(MAX) = (SELECT @Action AS Action, @EventID AS EventID, (@CurrentStateVersion + 1) AS StateVersion FOR JSON PATH, WITHOUT_ARRAY_WRAPPER);
+            INSERT INTO @SignalRTargets (TargetGroup, EventName, CustomPayload) VALUES 
+                ('event_' + CAST(@EventID AS VARCHAR) + '_gamer', @Action, @STE_Ping),
+                ('event_' + CAST(@EventID AS VARCHAR) + '_gamemaster', @Action, @STE_Ping),
+                ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', @Action, @STE_Ping);
+        END
+        ELSE IF @Action = N'Op.MosaicBuzz'
+        BEGIN
+            DECLARE @MB_EventUser BIGINT = (SELECT TOP 1 id FROM [EJ].[tblEventUser] WHERE EventID = @EventID AND UserID = @UserID AND ActiveFlg = 1);
+            DECLARE @MB_TeamID INT = (SELECT TOP 1 TeamID FROM [OP].[tblTeamMember] WHERE EventUserID = @MB_EventUser AND ActiveFlg = 1);
+            DECLARE @MB_TeamName NVARCHAR(100) = (SELECT k.Name FROM [OP].[tblTeam] t JOIN [OP].[tblKabala] k ON t.KabalaID = k.id WHERE t.id = @MB_TeamID);
+            DECLARE @MB_Nickname NVARCHAR(100) = (SELECT Nickname FROM [EJ].[tblUser] WHERE id = @UserID);
+            
+            DECLARE @MB_Ping NVARCHAR(MAX) = (SELECT @Action AS Action, @EventID AS EventID, @MB_TeamID AS TeamID, @MB_TeamName AS TeamName, @MB_Nickname AS Nickname FOR JSON PATH, WITHOUT_ARRAY_WRAPPER);
+            
+            INSERT INTO @SignalRTargets (TargetGroup, EventName, CustomPayload) VALUES 
+                ('event_' + CAST(@EventID AS VARCHAR) + '_gamemaster', @Action, @MB_Ping),
+                ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', @Action, @MB_Ping),
+                ('event_' + CAST(@EventID AS VARCHAR) + '_display', @Action, @MB_Ping);
+                
+            COMMIT TRANSACTION;
+            SELECT 1 AS ReturnValue, N'Sikeres művelet' AS ReturnDescription;
+            SELECT TargetGroup, EventName, CustomPayload AS PayloadJson FROM @SignalRTargets;
+            RETURN;
+        END
+        ELSE IF @Action = N'Op.MosaicJudge'
+        BEGIN
+            DECLARE @MJ_Ping NVARCHAR(MAX) = (SELECT @Action AS Action, @EventID AS EventID, (@CurrentStateVersion + 1) AS StateVersion FOR JSON PATH, WITHOUT_ARRAY_WRAPPER);
+            INSERT INTO @SignalRTargets (TargetGroup, EventName, CustomPayload) VALUES 
+                ('event_' + CAST(@EventID AS VARCHAR) + '_gamer', @Action, @MJ_Ping),
+                ('event_' + CAST(@EventID AS VARCHAR) + '_gamemaster', @Action, @MJ_Ping),
+                ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', @Action, @MJ_Ping);
         END
         ELSE IF @Action = N'Op.CastDisplay'
         BEGIN

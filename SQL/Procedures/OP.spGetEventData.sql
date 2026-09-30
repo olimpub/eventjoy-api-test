@@ -112,30 +112,34 @@ BEGIN
         eq.ClockLeftMs,
         xr.id AS ExtraRunID,
         xr.ExtraGameId,
-        xr.ActiveExtraQuestionID,
-        xr.ExtraQuestionStatus
+        xeq.id AS ActiveExtraQuestionID,
+        xeq.StatusCode AS ExtraQuestionStatus
     FROM [OP].[tblEventSettings] es
     LEFT JOIN [OP].[tblRound] rActive ON rActive.EventID = @EventID AND rActive.ActiveFlg = 1 AND rActive.RoundStatusID = (SELECT id FROM [OP].[tblRoundStatus] WHERE Code = 'active')
     LEFT JOIN [OP].[tblEventQuestion] eq ON eq.id = ISNULL(rActive.FocusedEventQuestionID, (
         SELECT TOP 1 id FROM [OP].[tblEventQuestion] WHERE RoundID = rActive.id AND ActiveFlg = 1 ORDER BY CASE StatusCode WHEN 'active' THEN 1 WHEN 'stopped' THEN 2 ELSE 3 END ASC, SortIndex ASC
     ))
     LEFT JOIN [OP].[tblExtraRun] xr ON xr.EventID = @EventID AND xr.StatusCode = 'active'
+    LEFT JOIN [OP].[tblExtraQuestion] xeq ON xeq.ExtraRunID = xr.id AND xeq.StatusCode IN ('active', 'stopped')
     WHERE es.EventID = @EventID;
 
 
+    
+
+    
     -- Dataset: OpExtraPool
     SELECT 'OpExtraPool' AS DatasetName;
     SELECT 
-        eeq.id, eeq.ExtraGameId, eeq.SortIndex, eeq.QuestionID,
-        q.Prompt, qt.Code AS TypeCode, q.TimeSec,
-        (SELECT id, ListType, Value, SortIndex FROM [OP].[tblQuestionOption] WHERE QuestionID = q.id ORDER BY SortIndex FOR JSON PATH) AS OptionsJson,
-        CASE WHEN (@IsQM = 1 OR @IsOrg = 1) THEN 
-            (SELECT OptionID, MatchOptionID, SortIndex, TextValue FROM [OP].[tblQuestionCorrectAnswer] WHERE QuestionID = q.id FOR JSON PATH)
+        xeq.id, xr.ExtraGameId, xeq.SortIndex, xeq.StatusCode, xeq.StartedAtUtc, xeq.StoppedAtUtc,
+        xeq.Prompt, qt.Code AS TypeCode, xeq.TimeSec,
+        (SELECT id, ListType, Value, SortIndex FROM [OP].[tblExtraQuestionOption] WHERE ExtraQuestionID = xeq.id ORDER BY SortIndex FOR JSON PATH) AS OptionsJson,
+        CASE WHEN (@IsQM = 1 OR @IsOrg = 1 OR @IsPlayer = 1) THEN 
+            (SELECT OptionID, MatchOptionID, SortIndex, TextValue FROM [OP].[tblExtraQuestionCorrectAnswer] WHERE ExtraQuestionID = xeq.id FOR JSON PATH)
         ELSE NULL END AS CorrectJson
-    FROM [OP].[tblEventExtraQuestion] eeq
-    JOIN [OP].[tblQuestion] q ON eeq.QuestionID = q.id
-    JOIN [OP].[tblQuestionType] qt ON q.QuestionTypeID = qt.id
-    WHERE eeq.EventID = @EventID AND eeq.ActiveFlg = 1;
+    FROM [OP].[tblExtraQuestion] xeq
+    JOIN [OP].[tblExtraRun] xr ON xeq.ExtraRunID = xr.id
+    JOIN [OP].[tblQuestionType] qt ON xeq.QuestionTypeID = qt.id
+    WHERE xr.EventID = @EventID AND xr.StatusCode = 'active';
 
     -- Dataset: DisplayCast (1 sor)
     SELECT 'DisplayCast' AS DatasetName;
@@ -152,22 +156,6 @@ BEGIN
     WHERE p.EventID = @EventID AND p.ActiveFlg = 1
       AND (@IsQM = 1 OR @IsOrg = 1 OR @IsDisplay = 1);
 
-    -- Dataset: OpExtraPool
-    IF @IsQM = 1 OR @IsOrg = 1
-    BEGIN
-        SELECT 'OpExtraPool' AS DatasetName;
-        SELECT 
-            eeq.QuestionID,
-            eeq.ExtraGameId,
-            eeq.SortIndex,
-            qt.Code AS TypeCode,
-            q.Prompt,
-            topi.Name AS Topic
-        FROM [OP].[tblEventExtraQuestion] eeq
-        JOIN [OP].[tblQuestion] q ON eeq.QuestionID = q.id
-        JOIN [OP].[tblQuestionType] qt ON q.QuestionTypeID = qt.id
-        LEFT JOIN [OP].[tblTopic] topi ON q.TopicID = topi.id
-        WHERE eeq.EventID = @EventID AND eeq.ActiveFlg = 1;
-    END
+    
 END
 GO
