@@ -531,6 +531,43 @@ ELSE IF @Action = N'Op.JoinTeam'
                     ('event_' + CAST(@EventID AS VARCHAR) + '_display', @Action, @JTPing);
             END
         END
+                ELSE IF @Action = N'Op.ResetRound'
+        BEGIN
+            DECLARE @ResetRoundID INT = JSON_VALUE(@Json, '$.Payload.RoundID');
+            IF @ResetRoundID IS NULL SET @ResetRoundID = JSON_VALUE(@Json, '$.Payload.RoundId');
+            
+            -- Delete answer items
+            DELETE FROM [OP].[tblAnswerItem] WHERE AnswerID IN (SELECT id FROM [OP].[tblAnswer] WHERE EventQuestionID IN (SELECT id FROM [OP].[tblEventQuestion] WHERE RoundID = @ResetRoundID));
+
+            -- Delete all answers for this round
+            DELETE FROM [OP].[tblAnswer] WHERE EventQuestionID IN (SELECT id FROM [OP].[tblEventQuestion] WHERE RoundID = @ResetRoundID);
+            
+            -- Delete all question scores
+            DELETE FROM [OP].[tblQuestionScore] WHERE EventQuestionID IN (SELECT id FROM [OP].[tblEventQuestion] WHERE RoundID = @ResetRoundID);
+            
+            -- Delete shadow scores
+            DELETE FROM [OP].[tblShadowScore] WHERE EventQuestionID IN (SELECT id FROM [OP].[tblEventQuestion] WHERE RoundID = @ResetRoundID);
+            
+            -- Delete round scores
+            DELETE FROM [OP].[tblRoundScore] WHERE RoundID = @ResetRoundID;
+            
+            -- Reset all questions in this round
+            UPDATE [OP].[tblEventQuestion] 
+            SET StatusCode = 'pending', StartedAtUtc = NULL, StoppedAtUtc = NULL, ClockPaused = 0, ClockLeftMs = NULL 
+            WHERE RoundID = @ResetRoundID;
+            
+            -- Reset round status to pending
+            DECLARE @PendingStatusID INT = (SELECT id FROM [OP].[tblRoundStatus] WHERE Code = 'pending');
+            UPDATE [OP].[tblRound] 
+            SET RoundStatusID = @PendingStatusID, FocusedEventQuestionID = NULL 
+            WHERE id = @ResetRoundID AND EventID = @EventID;
+            
+            DECLARE @RRPing NVARCHAR(MAX) = (SELECT @Action AS Action, @EventID AS EventID, (@CurrentStateVersion + 1) AS StateVersion FOR JSON PATH, WITHOUT_ARRAY_WRAPPER);
+            INSERT INTO @SignalRTargets (TargetGroup, EventName, CustomPayload) VALUES 
+                ('event_' + CAST(@EventID AS VARCHAR) + '_gamer', @Action, @RRPing),
+                ('event_' + CAST(@EventID AS VARCHAR) + '_gamemaster', @Action, @RRPing),
+                ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', @Action, @RRPing);
+        END
         ELSE IF @Action = N'Op.LeaveTeam'
         BEGIN
             IF EXISTS (SELECT 1 FROM [OP].[tblEventQuestion] eq JOIN [OP].[tblRound] r ON eq.RoundID = r.id WHERE r.EventID = @EventID AND eq.StatusCode = 'active' AND eq.ActiveFlg = 1)
