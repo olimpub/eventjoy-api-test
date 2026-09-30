@@ -35,9 +35,9 @@ BEGIN
         SELECT 
             t.id AS TeamId,
             k.Name,
-            ISNULL(rs_agg.F, 0) + ISNULL(p_agg.Points, 0) + ISNULL(es_agg.Points, 0) AS Points,
+            ISNULL(rs_agg.F, 0) + ISNULL(live_agg.LivePoints, 0) + ISNULL(p_agg.Points, 0) + ISNULL(es_agg.Points, 0) AS Points,
             ISNULL(db.PreviousPoints, 0) AS PreviousPoints,
-            RANK() OVER (ORDER BY ISNULL(rs_agg.F, 0) + ISNULL(p_agg.Points, 0) + ISNULL(es_agg.Points, 0) DESC) AS Place
+            RANK() OVER (ORDER BY ISNULL(rs_agg.F, 0) + ISNULL(live_agg.LivePoints, 0) + ISNULL(p_agg.Points, 0) + ISNULL(es_agg.Points, 0) DESC) AS Place
         FROM [OP].[tblTeam] t
         JOIN [OP].[tblKabala] k ON t.KabalaID = k.id
         OUTER APPLY (
@@ -45,6 +45,13 @@ BEGIN
                 SELECT id FROM [OP].[tblRound] WHERE EventID = @EventID AND RoundStatusID IN (SELECT StatusID FROM @StatusFilter)
             )
         ) rs_agg
+        OUTER APPLY (
+            SELECT SUM(qs.RawS) AS LivePoints FROM [OP].[tblQuestionScore] qs 
+            JOIN [OP].[tblEventQuestion] eq ON qs.EventQuestionID = eq.id
+            JOIN [OP].[tblRound] r ON eq.RoundID = r.id
+            WHERE qs.TeamID = t.id AND r.EventID = @EventID 
+              AND r.RoundStatusID NOT IN (SELECT id FROM [OP].[tblRoundStatus] WHERE Code = 'closed')
+        ) live_agg
         OUTER APPLY (
             SELECT SUM(p.Points) AS Points FROM [OP].[tblPenalty] p WHERE p.TeamID = t.id AND p.ActiveFlg = 1
         ) p_agg
@@ -60,20 +67,27 @@ BEGIN
     ELSE IF @Board = 'quiz'
     BEGIN
         SELECT 
-    
-        t.id AS TeamId,
+            t.id AS TeamId,
             k.Name,
-            ISNULL(SUM(rs.F), 0) AS Points,
+            ISNULL(rs_agg.F, 0) + ISNULL(live_agg.LivePoints, 0) AS Points,
             ISNULL(db.PreviousPoints, 0) AS PreviousPoints,
-            RANK() OVER (ORDER BY ISNULL(SUM(rs.F), 0) DESC) AS Place
+            RANK() OVER (ORDER BY ISNULL(rs_agg.F, 0) + ISNULL(live_agg.LivePoints, 0) DESC) AS Place
         FROM [OP].[tblTeam] t
         JOIN [OP].[tblKabala] k ON t.KabalaID = k.id
-        LEFT JOIN [OP].[tblRoundScore] rs ON rs.TeamID = t.id AND rs.RoundID IN (
-            SELECT id FROM [OP].[tblRound] WHERE EventID = @EventID AND RoundStatusID IN (SELECT StatusID FROM @StatusFilter)
-        )
+        OUTER APPLY (
+            SELECT SUM(rs.F) AS F FROM [OP].[tblRoundScore] rs WHERE rs.TeamID = t.id AND rs.RoundID IN (
+                SELECT id FROM [OP].[tblRound] WHERE EventID = @EventID AND RoundStatusID IN (SELECT StatusID FROM @StatusFilter)
+            )
+        ) rs_agg
+        OUTER APPLY (
+            SELECT SUM(qs.RawS) AS LivePoints FROM [OP].[tblQuestionScore] qs 
+            JOIN [OP].[tblEventQuestion] eq ON qs.EventQuestionID = eq.id
+            JOIN [OP].[tblRound] r ON eq.RoundID = r.id
+            WHERE qs.TeamID = t.id AND r.EventID = @EventID 
+              AND r.RoundStatusID NOT IN (SELECT id FROM [OP].[tblRoundStatus] WHERE Code = 'closed')
+        ) live_agg
         LEFT JOIN [OP].[tblDisplayBoard] db ON db.TeamID = t.id AND db.Board = @Board AND db.EventID = @EventID
         WHERE t.EventID = @EventID AND t.ActiveFlg = 1
-        GROUP BY t.id, k.Name, db.PreviousPoints
         ORDER BY Place ASC;
     END
     ELSE IF @Board = 'raw'
