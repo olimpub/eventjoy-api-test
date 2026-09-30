@@ -130,6 +130,13 @@ BEGIN
             UPDATE [OP].[tblEventExtraQuestion]
             SET SortIndex = ISNULL(@NewSortIndex, SortIndex)
             WHERE id = @EventExtraQuestionID;
+            
+            UPDATE [OP].[tblExtraQuestion]
+            SET TimeSec = @NewTimeSec,
+                Prompt = @NewPrompt
+            WHERE ExtraRunID IN (SELECT id FROM [OP].[tblExtraRun] WHERE EventID = @EventID AND StatusCode = 'active' AND ExtraGameId = @ExtraGameId)
+              AND SortIndex = (SELECT SortIndex FROM [OP].[tblEventExtraQuestion] WHERE id = @EventExtraQuestionID)
+              AND StatusCode = 'pending';
         END
         
         -- 4. Delete Old Options & Correct Answers
