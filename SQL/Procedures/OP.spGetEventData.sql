@@ -58,13 +58,16 @@ BEGIN
     JOIN [OP].[tblKabala] k ON t.KabalaID = k.id
     WHERE t.EventID = @EventID AND t.ActiveFlg = 1;
 
-    -- Dataset: OpTeamMembers
+        -- Dataset: OpTeamMembers
     SELECT 'OpTeamMembers' AS DatasetName;
     SELECT 
         tm.TeamID, 
-        tm.EventUserID
+        tm.EventUserID,
+        u.Nickname
     FROM [OP].[tblTeamMember] tm
     JOIN [OP].[tblTeam] t ON tm.TeamID = t.id
+    JOIN [EJ].[tblEventUser] eu ON tm.EventUserID = eu.id
+    JOIN [EJ].[tblUser] u ON eu.UserID = u.id
     WHERE t.EventID = @EventID AND tm.ActiveFlg = 1
       AND (@IsQM = 1 OR @IsOrg = 1 OR @IsDisplay = 1 OR tm.TeamID = @MyTeamID);
 
