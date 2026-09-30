@@ -459,7 +459,7 @@ ELSE IF @Action = N'Op.NextQuestion'
         BEGIN
             DECLARE @ADJ_TeamID INT = JSON_VALUE(@Json, '$.Payload.TeamID');
             DECLARE @ADJ_Direction NVARCHAR(50) = JSON_VALUE(@Json, '$.Payload.Direction');
-            DECLARE @ADJ_Points INT = CASE WHEN @ADJ_Direction = 'plus' THEN 1 WHEN @ADJ_Direction = 'minus' THEN -1 ELSE 0 END;
+            DECLARE @ADJ_Points INT = CASE WHEN @ADJ_Direction = 'plus' THEN 10 WHEN @ADJ_Direction = 'minus' THEN -10 ELSE 0 END;
 
             INSERT INTO [OP].[tblPenalty] (EventID, TeamID, Points, LastCreatedUserID)
             VALUES (@EventID, @ADJ_TeamID, @ADJ_Points, @UserID);
