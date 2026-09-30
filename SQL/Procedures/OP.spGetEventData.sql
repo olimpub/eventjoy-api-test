@@ -95,7 +95,7 @@ BEGIN
     WHERE r.EventID = @EventID AND eq.ActiveFlg = 1
       AND (@IsQM = 1 OR @IsOrg = 1 OR eq.StatusCode IN ('active', 'stopped'));
 
-            -- Dataset: OpLive (1 sor)
+                -- Dataset: OpLive (1 sor)
     SELECT 'OpLive' AS DatasetName;
     SELECT TOP 1
         es.StateVersion,
@@ -109,15 +109,35 @@ BEGIN
         eq.TimeSec,
         eq.StoppedAtUtc,
         eq.ClockPaused,
-        eq.ClockLeftMs
+        eq.ClockLeftMs,
+        xr.id AS ExtraRunID,
+        xr.ExtraGameId,
+        xr.ActiveExtraQuestionID,
+        xr.ExtraQuestionStatus
     FROM [OP].[tblEventSettings] es
     LEFT JOIN [OP].[tblRound] rActive ON rActive.EventID = @EventID AND rActive.ActiveFlg = 1 AND rActive.RoundStatusID = (SELECT id FROM [OP].[tblRoundStatus] WHERE Code = 'active')
     LEFT JOIN [OP].[tblEventQuestion] eq ON eq.id = ISNULL(rActive.FocusedEventQuestionID, (
         SELECT TOP 1 id FROM [OP].[tblEventQuestion] WHERE RoundID = rActive.id AND ActiveFlg = 1 ORDER BY CASE StatusCode WHEN 'active' THEN 1 WHEN 'stopped' THEN 2 ELSE 3 END ASC, SortIndex ASC
     ))
+    LEFT JOIN [OP].[tblExtraRun] xr ON xr.EventID = @EventID AND xr.StatusCode = 'active'
     WHERE es.EventID = @EventID;
 
--- Dataset: DisplayCast (1 sor)
+
+    -- Dataset: OpExtraPool
+    SELECT 'OpExtraPool' AS DatasetName;
+    SELECT 
+        eeq.id, eeq.ExtraGameId, eeq.SortIndex, eeq.QuestionID,
+        q.Prompt, qt.Code AS TypeCode, q.TimeSec,
+        (SELECT id, ListType, Value, SortIndex FROM [OP].[tblQuestionOption] WHERE QuestionID = q.id ORDER BY SortIndex FOR JSON PATH) AS OptionsJson,
+        CASE WHEN (@IsQM = 1 OR @IsOrg = 1) THEN 
+            (SELECT OptionID, MatchOptionID, SortIndex, TextValue FROM [OP].[tblQuestionCorrectAnswer] WHERE QuestionID = q.id FOR JSON PATH)
+        ELSE NULL END AS CorrectJson
+    FROM [OP].[tblEventExtraQuestion] eeq
+    JOIN [OP].[tblQuestion] q ON eeq.QuestionID = q.id
+    JOIN [OP].[tblQuestionType] qt ON q.QuestionTypeID = qt.id
+    WHERE eeq.EventID = @EventID AND eeq.ActiveFlg = 1;
+
+    -- Dataset: DisplayCast (1 sor)
     SELECT 'DisplayCast' AS DatasetName;
     SELECT 
         Face, PayloadJson, StateVersion, UpdatedAtUtc

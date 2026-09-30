@@ -132,9 +132,22 @@ ELSE IF @Action = N'Op.StopQuestion'
                 ('event_' + CAST(@EventID AS VARCHAR) + '_gamemaster', @Action, @StopPing),
                 ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', @Action, @StopPing);
         END
-                        ELSE IF @Action = N'Op.SubmitAnswer'
+                                        ELSE IF @Action = N'Op.SubmitAnswer'
         BEGIN
-            DECLARE @SubmitEQID INT = JSON_VALUE(@Json, '$.Payload.EventQuestionID');
+            DECLARE @SA_Kind NVARCHAR(16) = JSON_VALUE(@Json, '$.Payload.Kind');
+            IF @SA_Kind IS NULL SET @SA_Kind = 'round';
+            
+            DECLARE @SubmitEQID INT;
+            
+            IF @SA_Kind = 'extra'
+            BEGIN
+                SET @SubmitEQID = JSON_VALUE(@Json, '$.Payload.ExtraQuestionId');
+            END
+            ELSE
+            BEGIN
+                SET @SubmitEQID = JSON_VALUE(@Json, '$.Payload.EventQuestionID');
+            END
+            
             DECLARE @CorrectFlg BIT = JSON_VALUE(@Json, '$.Payload.Correct');
             DECLARE @Ratio DECIMAL(12,4) = JSON_VALUE(@Json, '$.Payload.Ratio');
             IF @Ratio IS NULL
@@ -144,16 +157,24 @@ ELSE IF @Action = N'Op.StopQuestion'
             DECLARE @ElapsedMs INT = JSON_VALUE(@Json, '$.Payload.ElapsedMs');
             
             DECLARE @EventUser BIGINT = (SELECT TOP 1 id FROM [EJ].[tblEventUser] WHERE EventID = @EventID AND UserID = @UserID AND ActiveFlg = 1);
-           
-            IF NOT EXISTS (SELECT 1 FROM [OP].[tblEventQuestion] WHERE id = @SubmitEQID AND StatusCode = 'active' AND ActiveFlg = 1)
-            BEGIN
-                THROW 50030, N'A kérdés már lezárult vagy nem aktív, nem lehet válaszolni!', 1;
-            END
-
             
-            IF EXISTS (SELECT 1 FROM [OP].[tblEventQuestion] WHERE id = @SubmitEQID AND ClockPaused = 1)
+            IF @SA_Kind = 'extra'
             BEGIN
-                THROW 50032, N'A kérdés szünetel, nem küldhetsz választ!', 1;
+                IF NOT EXISTS (SELECT 1 FROM [OP].[tblExtraRun] WHERE ActiveExtraQuestionID = @SubmitEQID AND ExtraQuestionStatus = 'active' AND StatusCode = 'active' AND EventID = @EventID)
+                BEGIN
+                    THROW 50030, N'Az extra kérdés már lezárult vagy nem aktív, nem lehet válaszolni!', 1;
+                END
+            END
+            ELSE
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM [OP].[tblEventQuestion] WHERE id = @SubmitEQID AND StatusCode = 'active' AND ActiveFlg = 1)
+                BEGIN
+                    THROW 50030, N'A kérdés már lezárult vagy nem aktív, nem lehet válaszolni!', 1;
+                END
+                IF EXISTS (SELECT 1 FROM [OP].[tblEventQuestion] WHERE id = @SubmitEQID AND ClockPaused = 1)
+                BEGIN
+                    THROW 50032, N'A kérdés szünetel, nem küldhetsz választ!', 1;
+                END
             END
 
             -- Check Team
@@ -163,21 +184,38 @@ ELSE IF @Action = N'Op.StopQuestion'
                 THROW 50031, N'Válassz csapatot.', 1;
             END
 
-            -- INSERT Answer
             DECLARE @NewAnswerID INT;
+            DECLARE @AnswerCount INT;
             
-            -- Inactivate previous
-            UPDATE [OP].[tblAnswer] SET ActiveFlg = 0 WHERE EventUserID = @EventUser AND EventQuestionID = @SubmitEQID;
+            IF @SA_Kind = 'extra'
+            BEGIN
+                UPDATE [OP].[tblExtraAnswer] SET ActiveFlg = 0 WHERE EventUserID = @EventUser AND ExtraQuestionID = @SubmitEQID;
 
-            INSERT INTO [OP].[tblAnswer] (EventQuestionID, EventUserID, ReceivedAtUtc, ActiveFlg, CorrectFlg, Ratio, ElapsedMs)
-            VALUES (@SubmitEQID, @EventUser, @Now, 1, @CorrectFlg, @Ratio, @ElapsedMs);
-            SET @NewAnswerID = SCOPE_IDENTITY();
+                INSERT INTO [OP].[tblExtraAnswer] (ExtraQuestionID, EventUserID, ReceivedAtUtc, ActiveFlg, CorrectFlg, Ratio, ElapsedMs)
+                VALUES (@SubmitEQID, @EventUser, @Now, 1, @CorrectFlg, @Ratio, @ElapsedMs);
+                SET @NewAnswerID = SCOPE_IDENTITY();
 
-            INSERT INTO [OP].[tblAnswerItem] (AnswerID, OptionID, MatchOptionID, SortIndex, TextValue)
-            SELECT @NewAnswerID, OptionID, MatchOptionID, SortIndex, TextValue
-            FROM OPENJSON(@Json, '$.Payload.Items') WITH (OptionID INT, MatchOptionID INT, SortIndex INT, TextValue NVARCHAR(500));
+                INSERT INTO [OP].[tblExtraAnswerItem] (ExtraAnswerID, OptionID, MatchOptionID, SortIndex, TextValue)
+                SELECT @NewAnswerID, OptionID, MatchOptionID, SortIndex, TextValue
+                FROM OPENJSON(@Json, '$.Payload.Items') WITH (OptionID INT, MatchOptionID INT, SortIndex INT, TextValue NVARCHAR(500));
+                
+                SET @AnswerCount = (SELECT COUNT(DISTINCT EventUserID) FROM [OP].[tblExtraAnswer] WHERE ExtraQuestionID = @SubmitEQID AND ActiveFlg = 1);
+            END
+            ELSE
+            BEGIN
+                UPDATE [OP].[tblAnswer] SET ActiveFlg = 0 WHERE EventUserID = @EventUser AND EventQuestionID = @SubmitEQID;
+
+                INSERT INTO [OP].[tblAnswer] (EventQuestionID, EventUserID, ReceivedAtUtc, ActiveFlg, CorrectFlg, Ratio, ElapsedMs)
+                VALUES (@SubmitEQID, @EventUser, @Now, 1, @CorrectFlg, @Ratio, @ElapsedMs);
+                SET @NewAnswerID = SCOPE_IDENTITY();
+
+                INSERT INTO [OP].[tblAnswerItem] (AnswerID, OptionID, MatchOptionID, SortIndex, TextValue)
+                SELECT @NewAnswerID, OptionID, MatchOptionID, SortIndex, TextValue
+                FROM OPENJSON(@Json, '$.Payload.Items') WITH (OptionID INT, MatchOptionID INT, SortIndex INT, TextValue NVARCHAR(500));
+                
+                SET @AnswerCount = (SELECT COUNT(DISTINCT EventUserID) FROM [OP].[tblAnswer] WHERE EventQuestionID = @SubmitEQID AND ActiveFlg = 1);
+            END
             
-            DECLARE @AnswerCount INT = (SELECT COUNT(DISTINCT EventUserID) FROM [OP].[tblAnswer] WHERE EventQuestionID = @SubmitEQID AND ActiveFlg = 1);
             DECLARE @RosterCount INT = (SELECT COUNT(DISTINCT tm.EventUserID) FROM [OP].[tblTeamMember] tm JOIN [OP].[tblTeam] t ON tm.TeamID = t.id WHERE t.EventID = @EventID AND t.ActiveFlg = 1 AND tm.ActiveFlg = 1);
             
             DECLARE @SAPing NVARCHAR(MAX) = (SELECT @Action AS Action, @EventID AS EventID, @CurrentStateVersion AS StateVersion, @AnswerCount AS AnswerCount, @RosterCount AS RosterCount FOR JSON PATH, WITHOUT_ARRAY_WRAPPER);
@@ -220,6 +258,7 @@ ELSE IF @Action = N'Op.NextQuestion'
         END
         ELSE IF @Action = N'Op.ReopenQuestion'
         BEGIN
+            IF JSON_VALUE(@Json, '$.Payload.Kind') = 'extra' THROW 50030, N'Extra kérdést nem lehet Reopen-nel újranyitni!', 1;
             DECLARE @RQ_EQID INT = JSON_VALUE(@Json, '$.Payload.EventQuestionID');
             DELETE FROM [OP].[tblAnswer] WHERE EventQuestionID = @RQ_EQID;
             DELETE FROM [OP].[tblQuestionScore] WHERE EventQuestionID = @RQ_EQID;
