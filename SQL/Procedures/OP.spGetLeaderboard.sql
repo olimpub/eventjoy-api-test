@@ -4,7 +4,8 @@ GO
 ALTER PROCEDURE [OP].[spGetLeaderboard]
     @EventID BIGINT,
     @Board NVARCHAR(50),
-    @UserID BIGINT = NULL
+    @UserID BIGINT = NULL,
+    @ExtraGameId NVARCHAR(50) = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -113,7 +114,7 @@ BEGIN
         FROM [OP].[tblTeam] t
         JOIN [OP].[tblKabala] k ON t.KabalaID = k.id
         LEFT JOIN [OP].[tblExtraScore] es ON es.TeamID = t.id AND es.ExtraRunID IN (
-            SELECT id FROM [OP].[tblExtraRun] WHERE EventID = @EventID AND StatusCode = 'closed'
+            SELECT id FROM [OP].[tblExtraRun] WHERE EventID = @EventID AND StatusCode = 'closed' AND (@ExtraGameId IS NULL OR ExtraGameId = @ExtraGameId)
         )
         LEFT JOIN [OP].[tblDisplayBoard] db ON db.TeamID = t.id AND db.Board = @Board AND db.EventID = @EventID
         WHERE t.EventID = @EventID AND t.ActiveFlg = 1

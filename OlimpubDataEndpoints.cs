@@ -232,6 +232,7 @@ namespace EventJoy.Api
 
             var queryDict = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
             string board = queryDict["board"] ?? "main";
+            string? extraGameId = queryDict["ExtraGameId"] ?? queryDict["extraGameId"] ?? queryDict["extragameid"];
 
             try
             {
@@ -246,6 +247,10 @@ namespace EventJoy.Api
                         cmd.Parameters.AddWithValue("@EventID", id);
                         cmd.Parameters.AddWithValue("@Board", board);
                         cmd.Parameters.AddWithValue("@UserID", userId.HasValue ? (object)userId.Value : DBNull.Value);
+                        if (!string.IsNullOrEmpty(extraGameId))
+                        {
+                            cmd.Parameters.AddWithValue("@ExtraGameId", extraGameId);
+                        }
 
                         using (var reader = await cmd.ExecuteReaderAsync())
                         {
