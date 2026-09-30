@@ -145,6 +145,22 @@ BEGIN
     JOIN [OP].[tblEventExtraQuestion] eeq ON xr.EventID = eeq.EventID AND xr.ExtraGameId = eeq.ExtraGameId AND xeq.SortIndex = eeq.SortIndex
     WHERE xr.EventID = @EventID AND xr.StatusCode = 'active';
 
+    IF (@IsQM = 1 OR @IsOrg = 1)
+    BEGIN
+        -- Dataset: OpExtraCatalog
+        SELECT 'OpExtraCatalog' AS DatasetName;
+        SELECT 
+            eeq.id AS EventExtraQuestionID, eeq.ExtraGameId, eeq.SortIndex, eeq.QuestionID,
+            q.Prompt, q.MediaUrl, q.ImageKey, q.AudioKey, qt.Code AS TypeCode, q.TimeSec,
+            (SELECT id, ListType, Value, SortIndex FROM [OP].[tblQuestionOption] WHERE QuestionID = q.id ORDER BY SortIndex FOR JSON PATH) AS OptionsJson,
+            (SELECT OptionID, MatchOptionID, SortIndex, TextValue FROM [OP].[tblQuestionCorrectAnswer] WHERE QuestionID = q.id FOR JSON PATH) AS CorrectJson
+        FROM [OP].[tblEventExtraQuestion] eeq
+        JOIN [OP].[tblQuestion] q ON eeq.QuestionID = q.id
+        JOIN [OP].[tblQuestionType] qt ON q.QuestionTypeID = qt.id
+        WHERE eeq.EventID = @EventID AND eeq.ActiveFlg = 1
+        ORDER BY eeq.ExtraGameId ASC, eeq.SortIndex ASC;
+    END
+
     -- Dataset: DisplayCast (1 sor)
     SELECT 'DisplayCast' AS DatasetName;
     SELECT 
