@@ -209,7 +209,7 @@ BEGIN
         )
         INSERT INTO [OP].[tblEventQuestion] (EventID, RoundID, QuestionID, SortIndex, StatusCode, TimeSec, ActiveFlg, LastCreatedUserID)
         SELECT @EventID, RoundID, NewQuestionID, RN, 'pending', ISNULL(TimeSec, 30), 1, @UserID
-        FROM RankedQuestions WHERE RN <= 8;
+        FROM RankedQuestions;
 
         -- EXTRA QUESTIONS (Only for ExtraGameId IS NOT NULL)
         INSERT INTO [OP].[tblEventExtraQuestion] (EventID, QuestionID, ExtraGameId, SortIndex, ActiveFlg)
