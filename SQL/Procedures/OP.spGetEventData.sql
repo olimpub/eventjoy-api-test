@@ -1,10 +1,11 @@
-﻿SET QUOTED_IDENTIFIER ON;
-SET ANSI_NULLS ON;
-GO
-ALTER PROCEDURE [OP].[spGetEventData]
+﻿-- =============================================
+-- Author:		EventJoy
+-- Create date: 
+-- Description:	V2 Refactored get event data
+-- =============================================
+CREATE OR ALTER PROCEDURE [OP].[spGetEventData]
     @EventID BIGINT,
-    @UserID BIGINT = NULL,
-    @IsDisplay BIT = 0
+    @UserID BIGINT
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -12,12 +13,18 @@ BEGIN
     DECLARE @IsQM BIT = 0;
     DECLARE @IsOrg BIT = 0;
     DECLARE @IsPlayer BIT = 0;
+    DECLARE @IsDisplay BIT = 0;
     DECLARE @MyTeamID INT = NULL;
     DECLARE @MyEventUserID BIGINT = NULL;
 
-    IF @UserID IS NOT NULL
+    IF EXISTS (SELECT 1 FROM [EJ].[tblEventUser] eu JOIN [EJ].[tblEventRole] er ON eu.EventRoleID = er.id JOIN [EJ].[tblRole] r ON er.RoleID = r.id WHERE eu.EventID = @EventID AND eu.UserID = @UserID AND r.id = 2 AND eu.ActiveFlg = 1) SET @IsOrg = 1;
+    
+    IF @UserID IS NULL
     BEGIN
-        IF EXISTS (SELECT 1 FROM [EJ].[tblEventUser] eu JOIN [EJ].[tblEventRole] er ON eu.EventRoleID = er.id JOIN [EJ].[tblRole] r ON er.RoleID = r.id WHERE eu.EventID = @EventID AND eu.UserID = @UserID AND r.RoleTypeID = 1 AND eu.ActiveFlg = 1) SET @IsOrg = 1;
+        SET @IsDisplay = 1;
+    END
+    ELSE
+    BEGIN
         IF EXISTS (SELECT 1 FROM [EJ].[tblEventUser] eu JOIN [EJ].[tblEventRole] er ON eu.EventRoleID = er.id JOIN [EJ].[tblRole] r ON er.RoleID = r.id WHERE eu.EventID = @EventID AND eu.UserID = @UserID AND r.id = 7 AND eu.ActiveFlg = 1) SET @IsQM = 1;
         
         SELECT TOP 1 @MyEventUserID = eu.id 
@@ -34,12 +41,7 @@ BEGIN
     -- Dataset: OpSettings
     SELECT 'OpSettings' AS DatasetName;
     SELECT 
-        es.DeskCountHint, 
-        es.MaxTeamSize, 
-        es.PlannedDurationMin, 
-        es.ShadowAwardFlg,
-        es.CurrentFlg,
-        es.StateVersion,
+        es.DeskCountHint, es.MaxTeamSize, es.PlannedDurationMin, es.ShadowAwardFlg, es.CurrentFlg, es.StateVersion,
         (SELECT TopicID FROM [OP].[tblEventSettingTopic] WHERE EventID = @EventID FOR JSON PATH) AS TopicIdsJson,
         (SELECT ExtraGameId FROM [OP].[tblEventSettingExtraGame] WHERE EventID = @EventID FOR JSON PATH) AS ExtraGameIdsJson
     FROM [OP].[tblEventSettings] es 
@@ -48,22 +50,17 @@ BEGIN
     -- Dataset: OpTeams
     SELECT 'OpTeams' AS DatasetName;
     SELECT 
-        t.id, 
-        t.EventID, 
-        t.KabalaID, 
-        k.Name,
+        t.id, t.EventID, t.KabalaID, k.Name,
         (SELECT TOP 1 a.BlobUrl FROM [OP].[tblKabalaAsset] a WHERE a.KabalaID = k.id AND a.Slot = 'profile' AND a.ActiveFlg = 1) AS ImageUrl,
         (SELECT COUNT(*) FROM [OP].[tblTeamMember] WHERE TeamID = t.id AND ActiveFlg = 1) AS MemberCount
     FROM [OP].[tblTeam] t
     JOIN [OP].[tblKabala] k ON t.KabalaID = k.id
     WHERE t.EventID = @EventID AND t.ActiveFlg = 1;
 
-        -- Dataset: OpTeamMembers
+    -- Dataset: OpTeamMembers
     SELECT 'OpTeamMembers' AS DatasetName;
     SELECT 
-        tm.TeamID, 
-        tm.EventUserID,
-        u.Nickname
+        tm.TeamID, tm.EventUserID, u.Nickname
     FROM [OP].[tblTeamMember] tm
     JOIN [OP].[tblTeam] t ON tm.TeamID = t.id
     JOIN [EJ].[tblEventUser] eu ON tm.EventUserID = eu.id
@@ -74,9 +71,10 @@ BEGIN
     -- Dataset: OpRounds
     SELECT 'OpRounds' AS DatasetName;
     SELECT 
-        r.id, r.EventID, r.TopicID, r.Mode, rs.Code AS StatusCode, r.SortIndex
+        r.id, r.EventID, r.TopicID, r.Mode, rs.Code AS StatusCode, r.SortIndex, rt.Code AS RoundTypeCode
     FROM [OP].[tblRound] r
     JOIN [OP].[tblRoundStatus] rs ON r.RoundStatusID = rs.id
+    JOIN [OP].[tblRoundType] rt ON r.RoundTypeID = rt.id
     WHERE r.EventID = @EventID AND r.ActiveFlg = 1;
 
     -- Dataset: OpEventQuestions
@@ -98,7 +96,7 @@ BEGIN
     WHERE r.EventID = @EventID AND eq.ActiveFlg = 1
       AND (@IsQM = 1 OR @IsOrg = 1 OR eq.StatusCode IN ('active', 'stopped'));
 
-                -- Dataset: OpLive (1 sor)
+    -- Dataset: OpLive (1 sor)
     SELECT 'OpLive' AS DatasetName;
     SELECT TOP 1
         es.StateVersion,
@@ -113,39 +111,16 @@ BEGIN
         eq.StoppedAtUtc,
         eq.ClockPaused,
         eq.ClockLeftMs,
-        xr.id AS ExtraRunID,
-        xr.ExtraGameId,
-        xeq.id AS ActiveExtraQuestionID,
-        xeq.StatusCode AS ExtraQuestionStatus
+        NULL AS ExtraRunID, -- Deprecated
+        NULL AS ExtraGameId, -- Deprecated
+        NULL AS ActiveExtraQuestionID, -- Deprecated
+        NULL AS ExtraQuestionStatus -- Deprecated
     FROM [OP].[tblEventSettings] es
     LEFT JOIN [OP].[tblRound] rActive ON rActive.EventID = @EventID AND rActive.ActiveFlg = 1 AND rActive.RoundStatusID = (SELECT id FROM [OP].[tblRoundStatus] WHERE Code = 'active')
     LEFT JOIN [OP].[tblEventQuestion] eq ON eq.id = ISNULL(rActive.FocusedEventQuestionID, (
         SELECT TOP 1 id FROM [OP].[tblEventQuestion] WHERE RoundID = rActive.id AND ActiveFlg = 1 ORDER BY CASE StatusCode WHEN 'active' THEN 1 WHEN 'stopped' THEN 2 ELSE 3 END ASC, SortIndex ASC
     ))
-    LEFT JOIN [OP].[tblExtraRun] xr ON xr.EventID = @EventID AND xr.StatusCode = 'active'
-    LEFT JOIN [OP].[tblExtraQuestion] xeq ON xeq.ExtraRunID = xr.id AND xeq.StatusCode IN ('active', 'stopped')
     WHERE es.EventID = @EventID;
-
-
-    
-
-    
-    -- Dataset: OpExtraPool
-    SELECT 'OpExtraPool' AS DatasetName;
-    SELECT 
-        xeq.id, xr.ExtraGameId, xeq.SortIndex, xeq.StatusCode, xeq.StartedAtUtc, xeq.StoppedAtUtc,
-        xeq.Prompt, qt.Code AS TypeCode, xeq.TimeSec,
-        q.MediaUrl, q.ImageKey, q.AudioKey,
-        (SELECT id, ListType, Value, SortIndex FROM [OP].[tblQuestionOption] WHERE QuestionID = eeq.QuestionID ORDER BY SortIndex FOR JSON PATH) AS OptionsJson,
-        CASE WHEN (@IsQM = 1 OR @IsOrg = 1 OR @IsPlayer = 1) THEN 
-            (SELECT OptionID, MatchOptionID, SortIndex, TextValue FROM [OP].[tblQuestionCorrectAnswer] WHERE QuestionID = eeq.QuestionID FOR JSON PATH)
-        ELSE NULL END AS CorrectJson
-    FROM [OP].[tblExtraQuestion] xeq
-    JOIN [OP].[tblExtraRun] xr ON xeq.ExtraRunID = xr.id
-    JOIN [OP].[tblQuestionType] qt ON xeq.QuestionTypeID = qt.id
-    JOIN [OP].[tblEventExtraQuestion] eeq ON xr.EventID = eeq.EventID AND xr.ExtraGameId = eeq.ExtraGameId AND xeq.SortIndex = eeq.SortIndex
-    JOIN [OP].[tblQuestion] q ON eeq.QuestionID = q.id
-    WHERE xr.EventID = @EventID AND xr.StatusCode = 'active';
 
     IF (@IsQM = 1 OR @IsOrg = 1)
     BEGIN
@@ -165,19 +140,17 @@ BEGIN
 
     -- Dataset: DisplayCast (1 sor)
     SELECT 'DisplayCast' AS DatasetName;
-    SELECT 
-        Face, PayloadJson, StateVersion, UpdatedAtUtc
-    FROM [OP].[DisplayCast]
-    WHERE EventID = @EventID;
+    SELECT Face, PayloadJson, StateVersion, UpdatedAtUtc FROM [OP].[DisplayCast] WHERE EventID = @EventID;
 
     -- Dataset: OpPenalties
     SELECT 'OpPenalties' AS DatasetName;
-    SELECT 
-        p.id, p.TeamID, p.Points, p.UndoOfID, p.CreatedAtUtc
+    SELECT p.id, p.TeamID, p.Points, p.UndoOfID, p.CreatedAtUtc, pt.Code AS PenaltyTypeCode, p.EventUserID, ISNULL(u.Nickname, u.FirstName) AS PlayerName
     FROM [OP].[tblPenalty] p
+    LEFT JOIN [OP].[tblPenaltyType] pt ON p.PenaltyTypeID = pt.id
+    LEFT JOIN [EJ].[tblEventUser] eu ON p.EventUserID = eu.id
+    LEFT JOIN [EJ].[tblUser] u ON eu.UserID = u.id
     WHERE p.EventID = @EventID AND p.ActiveFlg = 1
       AND (@IsQM = 1 OR @IsOrg = 1 OR @IsDisplay = 1);
-
-    
 END
 GO
+

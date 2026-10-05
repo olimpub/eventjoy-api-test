@@ -1,4 +1,4 @@
-﻿SET QUOTED_IDENTIFIER ON;
+SET QUOTED_IDENTIFIER ON;
 SET ANSI_NULLS ON;
 GO
 CREATE OR ALTER PROCEDURE [EJ].[spChangeEvent]
@@ -377,9 +377,16 @@ BEGIN
             DECLARE @NewPlayers TABLE (InsertedID INT, TempId NVARCHAR(100));
             MERGE INTO [PTA].[tblEventPlayer] AS target
             USING (
-                SELECT TempId, EventUserID, Name, TeamName, CompanyName, OrganizationName, RegionName, ActiveFlg
+                SELECT 
+                    JSON_VALUE(value, '$.TempId') AS TempId, 
+                    CAST(JSON_VALUE(value, '$.EventUserID') AS INT) AS EventUserID, 
+                    COALESCE(JSON_VALUE(value, '$.Name'), JSON_VALUE(value, '$.name')) AS Name, 
+                    COALESCE(JSON_VALUE(value, '$.TeamName'), JSON_VALUE(value, '$.teamName')) AS TeamName, 
+                    COALESCE(JSON_VALUE(value, '$.CompanyName'), JSON_VALUE(value, '$.companyName')) AS CompanyName, 
+                    COALESCE(JSON_VALUE(value, '$.OrganizationName'), JSON_VALUE(value, '$.organizationName')) AS OrganizationName, 
+                    COALESCE(JSON_VALUE(value, '$.RegionName'), JSON_VALUE(value, '$.regionName')) AS RegionName, 
+                    CAST(COALESCE(JSON_VALUE(value, '$.ActiveFlg'), JSON_VALUE(value, '$.activeFlg'), '1') AS BIT) AS ActiveFlg
                 FROM OPENJSON(@Json, '$.Payload.Players')
-                WITH (TempId NVARCHAR(64), EventUserID INT, Name NVARCHAR(200), TeamName NVARCHAR(200), CompanyName NVARCHAR(200), OrganizationName NVARCHAR(200), RegionName NVARCHAR(200), ActiveFlg BIT)
             ) AS source ON 1=0
             WHEN NOT MATCHED THEN INSERT (EventID, EventUserID, NickName, TeamName, CompanyName, OrganizationName, RegionName, ActiveFlg, LastUpdatedUserID, createdAt, updatedAt)
             VALUES (@EventID, source.EventUserID, source.Name, source.TeamName, source.CompanyName, source.OrganizationName, source.RegionName, source.ActiveFlg, @UserID, @Now, @Now)

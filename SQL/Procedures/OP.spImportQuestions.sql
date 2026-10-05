@@ -1,76 +1,63 @@
-﻿SET QUOTED_IDENTIFIER ON;
-GO
-ALTER PROCEDURE [OP].[spImportQuestions]
+﻿-- =============================================
+-- Author:		EventJoy
+-- Create date: 
+-- Description:	V2 Refactored Question Import
+-- =============================================
+CREATE OR ALTER PROCEDURE [OP].[spImportQuestions]
     @Json NVARCHAR(MAX),
-    @UserID INT
+    @UserID BIGINT
 AS
 BEGIN
     SET NOCOUNT ON;
-    DECLARE @ReturnValue INT, @ReturnDescription NVARCHAR(MAX);
+    SET QUOTED_IDENTIFIER ON;
 
     BEGIN TRY
-        BEGIN TRANSACTION;
         DECLARE @Now DATETIMEOFFSET = SYSDATETIMEOFFSET();
-        DECLARE @EventID INT = JSON_VALUE(@Json, '$.EventID');
+        DECLARE @EventID BIGINT = JSON_VALUE(@Json, '$.EventID');
 
         IF @EventID IS NULL
         BEGIN
-            THROW 50010, 'A JSON-ben nincs megadva az EventID, nem lehet a fordulót létrehozni!', 1;
+            THROW 50010, N'EventID hiányzik a JSON-ből.', 1;
         END
 
-        CREATE TABLE #IncomingQuestions (
-            TempId INT IDENTITY(1,1) PRIMARY KEY,
-            RowIndex INT,
-            TopicName NVARCHAR(120),
-            TypeCode NVARCHAR(16),
-            Prompt NVARCHAR(MAX),
-            TimeSec INT,
-            MediaUrl NVARCHAR(1000),
-            ExtraGameId NVARCHAR(8),
-            
-            Answer1 NVARCHAR(500), IsCorrect1 BIT, Match1 NVARCHAR(500),
-            Answer2 NVARCHAR(500), IsCorrect2 BIT, Match2 NVARCHAR(500),
-            Answer3 NVARCHAR(500), IsCorrect3 BIT, Match3 NVARCHAR(500),
-            Answer4 NVARCHAR(500), IsCorrect4 BIT, Match4 NVARCHAR(500),
-            Answer5 NVARCHAR(500), IsCorrect5 BIT, Match5 NVARCHAR(500),
-            Answer6 NVARCHAR(500), IsCorrect6 BIT, Match6 NVARCHAR(500),
-            Answer7 NVARCHAR(500), IsCorrect7 BIT, Match7 NVARCHAR(500),
-            Answer8 NVARCHAR(500), IsCorrect8 BIT, Match8 NVARCHAR(500),
+        IF NOT EXISTS (SELECT 1 FROM [EJ].[tblEventUser] eu JOIN [EJ].[tblEventRole] er ON eu.EventRoleID = er.id JOIN [EJ].[tblRole] r ON er.RoleID = r.id WHERE eu.EventID = @EventID AND eu.UserID = @UserID AND r.RoleTypeID = 1 AND eu.ActiveFlg = 1)
+        BEGIN
+            THROW 50030, N'Nincs megfelelő jogosultságod (Szervező) a kérdések importálásához!', 1;
+        END
 
-            TopicID INT,
-            QuestionTypeID INT,
-            NewQuestionID INT
-        );
+        IF OBJECT_ID('tempdb..#IncomingQuestions') IS NOT NULL DROP TABLE #IncomingQuestions;
 
-        INSERT INTO #IncomingQuestions (
-            RowIndex, TopicName, TypeCode, Prompt, TimeSec, MediaUrl, ExtraGameId,
-            Answer1, IsCorrect1, Match1, Answer2, IsCorrect2, Match2,
-            Answer3, IsCorrect3, Match3, Answer4, IsCorrect4, Match4,
-            Answer5, IsCorrect5, Match5, Answer6, IsCorrect6, Match6,
-            Answer7, IsCorrect7, Match7, Answer8, IsCorrect8, Match8
-        )
         SELECT 
-            RowIndex, LTRIM(RTRIM(TopicName)), LOWER(LTRIM(RTRIM(TypeCode))), Prompt, TimeSec, MediaUrl,
-            CASE WHEN LTRIM(RTRIM(COALESCE(ExtraGameId, Jatek))) = '' OR LTRIM(RTRIM(COALESCE(ExtraGameId, Jatek))) = 'kviz' THEN NULL ELSE LTRIM(RTRIM(COALESCE(ExtraGameId, Jatek))) END,
-            COALESCE(Answer1, Valasz1, Helyes), ISNULL(COALESCE(IsCorrect1, Helyes1), 0), COALESCE(Match1, Par1),
-            COALESCE(Answer2, Valasz2), ISNULL(COALESCE(IsCorrect2, Helyes2), 0), COALESCE(Match2, Par2),
-            COALESCE(Answer3, Valasz3), ISNULL(COALESCE(IsCorrect3, Helyes3), 0), COALESCE(Match3, Par3),
-            COALESCE(Answer4, Valasz4), ISNULL(COALESCE(IsCorrect4, Helyes4), 0), COALESCE(Match4, Par4),
-            COALESCE(Answer5, Valasz5), ISNULL(COALESCE(IsCorrect5, Helyes5), 0), COALESCE(Match5, Par5),
-            COALESCE(Answer6, Valasz6), ISNULL(COALESCE(IsCorrect6, Helyes6), 0), COALESCE(Match6, Par6),
-            COALESCE(Answer7, Valasz7), ISNULL(COALESCE(IsCorrect7, Helyes7), 0), COALESCE(Match7, Par7),
-            COALESCE(Answer8, Valasz8), ISNULL(COALESCE(IsCorrect8, Helyes8), 0), COALESCE(Match8, Par8)
+            RowIndex,
+            TopicName,
+            TypeCode,
+            Prompt,
+            TimeSec,
+            MediaUrl,
+            RoundTypeCode,
+            Answer1, IsCorrect1, Match1,
+            Answer2, IsCorrect2, Match2,
+            Answer3, IsCorrect3, Match3,
+            Answer4, IsCorrect4, Match4,
+            Answer5, IsCorrect5, Match5,
+            Answer6, IsCorrect6, Match6,
+            Answer7, IsCorrect7, Match7,
+            Answer8, IsCorrect8, Match8,
+            CAST(NULL AS INT) AS TopicID,
+            CAST(NULL AS INT) AS QuestionTypeID,
+            CAST(NULL AS INT) AS RoundTypeID,
+            CAST(NULL AS INT) AS NewQuestionID,
+            IDENTITY(INT, 1, 1) AS TempId
+        INTO #IncomingQuestions
         FROM OPENJSON(@Json, '$.Questions')
         WITH (
-            RowIndex INT '$.SortIndex', 
-            TopicName NVARCHAR(120) '$.Topic', 
-            TypeCode NVARCHAR(16) '$.TypeCode', 
-            Prompt NVARCHAR(MAX) '$.Prompt', 
-            TimeSec INT '$.TimeSec', 
-            MediaUrl NVARCHAR(1000) '$.MediaUrl',
-            ExtraGameId NVARCHAR(8) '$.ExtraGameId',
-            Jatek NVARCHAR(8) '$."Játék"',
-            
+            RowIndex INT '$.RowIndex',
+            TopicName NVARCHAR(120) '$.TopicName',
+            TypeCode NVARCHAR(16) '$.TypeCode',
+            Prompt NVARCHAR(MAX) '$.Prompt',
+            TimeSec INT '$.TimeSec',
+            MediaUrl NVARCHAR(500) '$.MediaUrl',
+            RoundTypeCode VARCHAR(50) '$.RoundTypeCode',
             Answer1 NVARCHAR(500) '$.Answer1', IsCorrect1 BIT '$.IsCorrect1', Match1 NVARCHAR(500) '$.Match1',
             Answer2 NVARCHAR(500) '$.Answer2', IsCorrect2 BIT '$.IsCorrect2', Match2 NVARCHAR(500) '$.Match2',
             Answer3 NVARCHAR(500) '$.Answer3', IsCorrect3 BIT '$.IsCorrect3', Match3 NVARCHAR(500) '$.Match3',
@@ -78,23 +65,27 @@ BEGIN
             Answer5 NVARCHAR(500) '$.Answer5', IsCorrect5 BIT '$.IsCorrect5', Match5 NVARCHAR(500) '$.Match5',
             Answer6 NVARCHAR(500) '$.Answer6', IsCorrect6 BIT '$.IsCorrect6', Match6 NVARCHAR(500) '$.Match6',
             Answer7 NVARCHAR(500) '$.Answer7', IsCorrect7 BIT '$.IsCorrect7', Match7 NVARCHAR(500) '$.Match7',
-            Answer8 NVARCHAR(500) '$.Answer8', IsCorrect8 BIT '$.IsCorrect8', Match8 NVARCHAR(500) '$.Match8',
-            
-            Helyes NVARCHAR(500) '$.Helyes',
-            Helyes1 BIT '$.Helyes1', Valasz1 NVARCHAR(500) '$."Válasz1"', Par1 NVARCHAR(500) '$."Pár1"',
-            Helyes2 BIT '$.Helyes2', Valasz2 NVARCHAR(500) '$."Válasz2"', Par2 NVARCHAR(500) '$."Pár2"',
-            Helyes3 BIT '$.Helyes3', Valasz3 NVARCHAR(500) '$."Válasz3"', Par3 NVARCHAR(500) '$."Pár3"',
-            Helyes4 BIT '$.Helyes4', Valasz4 NVARCHAR(500) '$."Válasz4"', Par4 NVARCHAR(500) '$."Pár4"',
-            Helyes5 BIT '$.Helyes5', Valasz5 NVARCHAR(500) '$."Válasz5"', Par5 NVARCHAR(500) '$."Pár5"',
-            Helyes6 BIT '$.Helyes6', Valasz6 NVARCHAR(500) '$."Válasz6"', Par6 NVARCHAR(500) '$."Pár6"',
-            Helyes7 BIT '$.Helyes7', Valasz7 NVARCHAR(500) '$."Válasz7"', Par7 NVARCHAR(500) '$."Pár7"',
-            Helyes8 BIT '$.Helyes8', Valasz8 NVARCHAR(500) '$."Válasz8"', Par8 NVARCHAR(500) '$."Pár8"'
+            Answer8 NVARCHAR(500) '$.Answer8', IsCorrect8 BIT '$.IsCorrect8', Match8 NVARCHAR(500) '$.Match8'
         );
 
-        -- Missing TimeSec for extra games
-        UPDATE #IncomingQuestions SET TimeSec = 0 WHERE ExtraGameId = 'EG2' AND TimeSec IS NULL;
-        UPDATE #IncomingQuestions SET TimeSec = 20 WHERE ExtraGameId IN ('EG4', 'EG6', 'EG8') AND TimeSec IS NULL;
-        UPDATE #IncomingQuestions SET TimeSec = 12 WHERE ExtraGameId IN ('EG5', 'EG7') AND TimeSec IS NULL;
+        BEGIN TRANSACTION;
+
+        -- Alapértelmezett RoundType = main_quiz ha nincs megadva
+        UPDATE #IncomingQuestions SET RoundTypeCode = 'main_quiz' WHERE RoundTypeCode IS NULL;
+        
+        -- RoundTypeID beállítása
+        UPDATE i SET i.RoundTypeID = rt.id
+        FROM #IncomingQuestions i JOIN [OP].[tblRoundType] rt ON i.RoundTypeCode = rt.Code;
+
+        IF EXISTS (SELECT 1 FROM #IncomingQuestions WHERE RoundTypeID IS NULL)
+        BEGIN
+            DECLARE @MissingRTypes NVARCHAR(MAX);
+            SELECT @MissingRTypes = STRING_AGG(RoundTypeCode, ', ') FROM (SELECT DISTINCT RoundTypeCode FROM #IncomingQuestions WHERE RoundTypeID IS NULL) t;
+            DECLARE @ErrMsgR NVARCHAR(2048) = N'Ismeretlen forduló típus kód(ok): ' + ISNULL(@MissingRTypes, 'ismeretlen'); THROW 50020, @ErrMsgR, 1;
+        END
+
+        -- Idő alapbeállítás gyorsasági játékoknál
+        UPDATE #IncomingQuestions SET TimeSec = 12 WHERE RoundTypeCode = 'fast_5' AND TimeSec IS NULL;
 
         -- Topics
         INSERT INTO [OP].[tblTopic] (Name, ActiveFlg)
@@ -117,7 +108,7 @@ BEGIN
             DECLARE @ErrMsg NVARCHAR(2048) = N'Ismeretlen kérdéstípus kód(ok): ' + ISNULL(@MissingTypes, 'ismeretlen'); THROW 50020, @ErrMsg, 1;
         END
 
-        -- Insert Questions
+        -- Insert Questions to Global Repository
         DECLARE @InsertedQuestions TABLE (TempId INT, InsertedID INT);
         MERGE INTO [OP].[tblQuestion] AS target
         USING #IncomingQuestions AS source
@@ -189,33 +180,27 @@ BEGIN
         SELECT DISTINCT @EventID, TopicID FROM #IncomingQuestions
         WHERE TopicID IS NOT NULL AND TopicID NOT IN (SELECT TopicID FROM [OP].[tblEventSettingTopic] WHERE EventID = @EventID);
 
-        -- ROUNDS (Only for ExtraGameId IS NULL)
+        -- ROUNDS LÉTREHOZÁSA (MINDEN TÍPUSNAK EGYFORMÁN!)
         DECLARE @PendingStatusID INT = (SELECT id FROM [OP].[tblRoundStatus] WHERE Code = 'pending');
         DECLARE @MaxSortIndex INT = ISNULL((SELECT MAX(SortIndex) FROM [OP].[tblRound] WHERE EventID = @EventID), 0);
-        DECLARE @CreatedRounds TABLE (TopicID INT, RoundID INT);
+        DECLARE @CreatedRounds TABLE (TopicID INT, RoundTypeID INT, RoundID INT);
 
-        INSERT INTO [OP].[tblRound] (EventID, TopicID, Mode, RoundStatusID, SortIndex, ActiveFlg, LastCreatedUserID)
-        OUTPUT inserted.TopicID, inserted.id INTO @CreatedRounds
-        SELECT @EventID, TopicID, 'fixed', @PendingStatusID, @MaxSortIndex + ROW_NUMBER() OVER (ORDER BY MIN(TempId)), 1, @UserID
+        INSERT INTO [OP].[tblRound] (EventID, TopicID, Mode, RoundStatusID, SortIndex, ActiveFlg, LastCreatedUserID, RoundTypeID)
+        OUTPUT inserted.TopicID, inserted.RoundTypeID, inserted.id INTO @CreatedRounds
+        SELECT @EventID, TopicID, 'fixed', @PendingStatusID, @MaxSortIndex + ROW_NUMBER() OVER (ORDER BY MIN(TempId)), 1, @UserID, RoundTypeID
         FROM #IncomingQuestions
-        WHERE TopicID IS NOT NULL AND ExtraGameId IS NULL
-        GROUP BY TopicID;
+        WHERE TopicID IS NOT NULL
+        GROUP BY TopicID, RoundTypeID;
 
-        -- EVENT QUESTIONS (Only for ExtraGameId IS NULL)
+        -- EVENT QUESTIONS LÉTREHOZÁSA (MINDEN TÍPUSNAK EGYFORMÁN!)
         ;WITH RankedQuestions AS (
-            SELECT r.RoundID, i.NewQuestionID, i.TimeSec, ROW_NUMBER() OVER(PARTITION BY i.TopicID ORDER BY ISNULL(i.RowIndex, i.TempId)) AS RN
-            FROM #IncomingQuestions i JOIN @CreatedRounds r ON i.TopicID = r.TopicID
-            WHERE i.NewQuestionID IS NOT NULL AND i.ExtraGameId IS NULL
+            SELECT r.RoundID, i.NewQuestionID, i.TimeSec, ROW_NUMBER() OVER(PARTITION BY i.TopicID, i.RoundTypeID ORDER BY ISNULL(i.RowIndex, i.TempId)) AS RN
+            FROM #IncomingQuestions i JOIN @CreatedRounds r ON i.TopicID = r.TopicID AND i.RoundTypeID = r.RoundTypeID
+            WHERE i.NewQuestionID IS NOT NULL
         )
         INSERT INTO [OP].[tblEventQuestion] (EventID, RoundID, QuestionID, SortIndex, StatusCode, TimeSec, ActiveFlg, LastCreatedUserID)
         SELECT @EventID, RoundID, NewQuestionID, RN, 'pending', ISNULL(TimeSec, 30), 1, @UserID
         FROM RankedQuestions;
-
-        -- EXTRA QUESTIONS (Only for ExtraGameId IS NOT NULL)
-        INSERT INTO [OP].[tblEventExtraQuestion] (EventID, QuestionID, ExtraGameId, SortIndex, ActiveFlg)
-        SELECT @EventID, NewQuestionID, ExtraGameId, ISNULL(RowIndex, TempId), 1
-        FROM #IncomingQuestions
-        WHERE NewQuestionID IS NOT NULL AND ExtraGameId IS NOT NULL;
 
         COMMIT TRANSACTION;
         
@@ -227,3 +212,4 @@ BEGIN
         SELECT -1 AS ReturnValue, ERROR_MESSAGE() AS ReturnDescription;
     END CATCH
 END
+GO
