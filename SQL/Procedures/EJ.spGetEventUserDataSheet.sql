@@ -1,4 +1,4 @@
-﻿SET ANSI_NULLS ON
+SET ANSI_NULLS ON
 GO
 
 SET QUOTED_IDENTIFIER ON
@@ -126,13 +126,15 @@ BEGIN
         FROM [PTA].[tblEventPrize]
         WHERE EventID = @EventID;
 
-        -- RS12: Organizer datasheet (EJ rsztvevk)
+        -- RS12: Organizer datasheet (EJ résztvevők)
         IF (@DataSheetType = 1)
         BEGIN
-            SELECT eu.*, usr.FirstName, usr.LastName, usr.EmailAddress, usr.PhoneNumber
+            SELECT eu.*, usr.FirstName, usr.LastName, usr.EmailAddress, usr.PhoneNumber,
+                   p.OrganizationName, p.TeamName, p.CompanyName, p.RegionName
             FROM [EJ].[tblEventUser] eu
             INNER JOIN [EJ].[tblUser] usr ON usr.ID = eu.UserID
-            Inner JOIN [EJ].[tblEventRole] er ON er.ID = eu.EventRoleID
+            INNER JOIN [EJ].[tblEventRole] er ON er.ID = eu.EventRoleID
+            LEFT JOIN [PTA].[tblEventPlayer] p ON p.EventUserID = eu.id AND p.EventID = eu.EventID
             WHERE eu.EventID = @EventID
                 --AND eu.ID <> @EventUserID
                 AND eu.ActiveFlg = 1;

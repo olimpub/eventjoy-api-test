@@ -5,6 +5,13 @@ BEGIN
     DECLARE @ReturnValue INT, @ReturnDescription VARCHAR(MAX);
 
     BEGIN TRY
+        DECLARE @EmailSendingEnabled NVARCHAR(50) = (SELECT ParamValue FROM [EJ].[tblSystemParam] WHERE ParamName = 'EmailSendingEnabled');
+        IF @EmailSendingEnabled IN ('0', 'false', 'False')
+        BEGIN
+            SELECT -1 AS ReturnValue, 'Email sending is globally disabled via SystemParam' AS ReturnDescription;
+            RETURN;
+        END
+
         -- 1. Egy belső változótáblába kimentjük a zárolandó e-maileket
         DECLARE @PendingEmails TABLE (
             EmailID BIGINT,

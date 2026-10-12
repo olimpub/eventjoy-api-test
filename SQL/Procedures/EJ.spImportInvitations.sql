@@ -1,4 +1,4 @@
-﻿SET QUOTED_IDENTIFIER ON;
+SET QUOTED_IDENTIFIER ON;
 SET ANSI_NULLS ON;
 GO
 CREATE OR ALTER PROCEDURE [EJ].[spImportInvitations]
@@ -290,9 +290,18 @@ BEGIN
         DECLARE @Mode NVARCHAR(50) = (SELECT ParamValue FROM [EJ].[tblSystemParam] WHERE ParamName = 'RunningMode');
         DECLARE @BaseUrl NVARCHAR(500) = (SELECT ParamValue FROM [EJ].[tblSystemParam] WHERE ParamName = 'FrontendBaseUrl_' + @Mode);
 
+        DECLARE @EmailSendingEnabled NVARCHAR(50) = (SELECT ParamValue FROM [EJ].[tblSystemParam] WHERE ParamName = 'EmailSendingEnabled');
+        DECLARE @SendEmails BIT = 1;
+        IF @EmailSendingEnabled IN ('0', 'false', 'False')
+        BEGIN
+            SET @SendEmails = 0;
+        END
+
         DECLARE @OutboxIDs TABLE (EmailID INT, RowID INT);
         
-        MERGE INTO [EJ].[tblEmailOutbox] AS target
+        IF @SendEmails = 1
+        BEGIN
+            MERGE INTO [EJ].[tblEmailOutbox] AS target
         USING (
             SELECT i.* 
             FROM #Invitations i
@@ -324,6 +333,7 @@ BEGIN
         INSERT INTO [EJ].[tblEmailOutboxParams] (EmailID, ParamName, ParamValue, LastUpdatedUserID, createdAt, updatedAt)
         SELECT o.EmailID, 'EntryLink', @BaseUrl + '/invite/' + CAST(i.EventUserUID AS NVARCHAR(36)), @UserID, @Now, @Now
         FROM @OutboxIDs o JOIN #Invitations i ON o.RowID = i.RowID;
+        END
 
         -- Sikeres válasz
         SELECT 1 AS ReturnValue, N'OK' AS ReturnDescription, @EventID AS EventID, @BatchID AS BatchID;
