@@ -475,12 +475,31 @@ BEGIN
                 SELECT 1 FROM [EJ].[tblEventUser] eu 
                 INNER JOIN [EJ].[tblEventRole] er ON eu.EventRoleID = er.id 
                 INNER JOIN [EJ].[tblRole] r ON er.RoleID = r.id
-                WHERE eu.UserID = @UserID AND eu.EventID = @EventID AND (r.RoleName = N'Organizer' OR r.Code = N'organizer')
+                WHERE eu.UserID = @UserID AND eu.EventID = @EventID AND eu.ActiveFlg = 1
+                  AND (r.RoleName IN (N'Organizer', N'Szervező', N'Házigazda', N'Tulajdonos') OR r.Code IN (N'organizer', N'host', N'owner') OR r.RoleTypeID = 1)
+            ) THEN 1 ELSE 0 END);
+
+            DECLARE @IsGameMaster BIT = (SELECT CASE WHEN EXISTS (
+                SELECT 1 FROM [EJ].[tblEventUser] eu 
+                INNER JOIN [EJ].[tblEventRole] er ON eu.EventRoleID = er.id 
+                INNER JOIN [EJ].[tblRole] r ON er.RoleID = r.id
+                WHERE eu.UserID = @UserID AND eu.EventID = @EventID AND eu.ActiveFlg = 1
+                  AND (r.RoleName IN (N'Játékmester', N'Game Master', N'Gamemaster', N'Munkatárs') OR r.Code IN (N'game_master', N'staff') OR r.RoleTypeID = 2)
             ) THEN 1 ELSE 0 END);
             
-            IF @GameMasterUserID <> @UserID AND @IsOrganizer = 0
+            IF @IsOrganizer = 0 AND @IsGameMaster = 0 AND (@GameMasterUserID IS NULL OR @GameMasterUserID <> @UserID)
             BEGIN
                 THROW 50005, N'Permission Denied: Csak a Játékmester vagy Szervező pontozhat!', 1;
+            END
+
+            -- Ha a hívó Játékmester, vagy az asztalnak nincs még GM-je, beállítjuk az asztalhoz
+            IF @IsGameMaster = 1 OR @GameMasterUserID IS NULL
+            BEGIN
+                UPDATE [PTA].[tblEventRoundDesk]
+                SET GameMasterUserID = @UserID,
+                    LastUpdatedUserID = @UserID,
+                    updatedAt = @Now
+                WHERE EventRoundDeskID = @RoundDeskID;
             END
 
             -- EREDMÉNY MENTÉSE
