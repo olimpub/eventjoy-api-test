@@ -1,7 +1,7 @@
 -- =========================================================================
--- EventJoy Release 1.0.3 Migration Script
--- Version: 1.0.3
--- Date: 2026-10-14
+-- EventJoy Release 1.0.4 Migration Script
+-- Version: 1.0.4
+-- Date: 2026-10-22
 -- =========================================================================
 
 SET ANSI_NULLS ON;
@@ -9,9 +9,9 @@ GO
 SET QUOTED_IDENTIFIER ON;
 GO
 
-DECLARE @VersionNumber NVARCHAR(50) = N'1.0.3';
+DECLARE @VersionNumber NVARCHAR(50) = N'1.0.4';
 DECLARE @ReleaseDate DATETIME = GETUTCDATE();
-DECLARE @Summary NVARCHAR(MAX) = N'PTA sorsolás és pontozás optimalizálása, személyes QR belépő kódok és eszközkötés (játékos és játékmester), Olimpub egyszerűsített fordulók, valamint kivetítés és fejléc fejlesztések.';
+DECLARE @Summary NVARCHAR(MAX) = N'Olimpub V2 fordulómodell (a játékok is fordulók), Mozaik játék és buzzer, kétfázisú órakezelés és szerveroldali kiértékelés, váróterem és szünet képernyők stabilizálása, kivetítő állás és modul-specifikus PIN belépés, valamint kapcsolat-, hibanaplózási és MailerSend webhook fejlesztések.';
 DECLARE @LastUpdatedUserID BIGINT = 3;
 
 -- 1. Verzió felvitele vagy frissítése
@@ -68,41 +68,35 @@ INSERT INTO [EJ].[tblAppVersionItem] (
     createdAt,
     updatedAt
 ) VALUES
--- PTA sorsolás
-(@VersionID, N'PTA-DRAW-1', NULL, N'PTA sorsolás: Ha az asztalszám nem stimmel a belépett játékosokkal, a véglegesítés le van tiltva, és kiírja, hány asztal kellene.', 1, GETUTCDATE(), GETUTCDATE()),
-(@VersionID, N'PTA-DRAW-2', NULL, N'PTA sorsolás: Későbbi mentés nem törli a játékosok szervezetnevét.', 1, GETUTCDATE(), GETUTCDATE()),
+-- 1. Olimpub: fordulók és játékok
+(@VersionID, N'OP-ROUND-1', NULL, N'Olimpub fordulómodell: A játékok mostantól fordulók (RoundTypeCode): a main_quiz a Fordulók alatt, minden más (Párbaj, Gyorsasági, Mozaik, Karaoke) a Játékok alatt jelenik meg a Quiz menüben és a Kvízmester katalógusban is, külön szekcióban, típus- és kérdésszám-jelöléssel.', 1, GETUTCDATE(), GETUTCDATE()),
+(@VersionID, N'OP-ROUND-2', NULL, N'Olimpub adatforrás: A külön Extra játék Pinia táblák és kérdéskészlet-kiválasztók megszűntek; a backendtől érkező fordulók és kérdések jelentik az egyetlen adatforrást.', 1, GETUTCDATE(), GETUTCDATE()),
+(@VersionID, N'OP-ROUND-3', NULL, N'Párbaj és órakezelés: Párbaj (Csak zene) és nem main_quiz fordulóknál nincs 3 mp-es felolvasás, a kérdés azonnal opciókkal jelenik meg és fut a válaszóra; a Generációk és a Fő kvíz megtartja a felolvasási/bevezető fázist (ClockPaused = 1, majd Op.StartClock).', 1, GETUTCDATE(), GETUTCDATE()),
 
--- Olimpub
-(@VersionID, N'OLIM-ROUND-1', NULL, N'Olimpub: A forduló típusa egyszerűsödött: Fő kvíz, Párbaj, Gyorsasági, Színpad.', 1, GETUTCDATE(), GETUTCDATE()),
+-- 2. Mozaik
+(@VersionID, N'OP-MOZAIK-1', NULL, N'Mozaik tippelés (Buzzer): A játékosnál Tippelj gomb jelenik meg; atomi első-nyomó rögzítéssel (Op.MosaicBuzz) az első tippelő nyer, az óra befagyasztásra kerül, és mindenki (beleértve a kivetítőt is) a nyertes tippelő nevét és csapatát látja.', 1, GETUTCDATE(), GETUTCDATE()),
+(@VersionID, N'OP-MOZAIK-2', NULL, N'Mozaik bírálat és kizárás: A kvízmester csapatszinten értékeli a tippet (jó vagy rossz); rossz tipp (mozaik_wrong) esetén a kiesett csapat az adott kérdésben nem tippelhet újra (MosaicOutTeamIds), az óra pedig továbbindul.', 1, GETUTCDATE(), GETUTCDATE()),
+(@VersionID, N'OP-MOZAIK-3', NULL, N'Mozaik vezérlés és szinkron: Két mozaikkérdés között a „Folytatás" nem indítja el automatikusan a következő kérdést és az órát, a tipp után pedig a telefon ellenőrzi a szerver állapotát.', 1, GETUTCDATE(), GETUTCDATE()),
 
--- Kivetítés és teljes képernyő
-(@VersionID, N'DISP-ROUND-1', NULL, N'Kivetítés: Lezárt forduló is kivetíthető, nem csak a publikált. A játékos telefonja továbbra is csak a publikált eredményt látja.', 1, GETUTCDATE(), GETUTCDATE()),
-(@VersionID, N'DISP-SELECT-1', NULL, N'Kivetítés: A vetítésválasztó üresen indul. Játékosok, Csoportok és Dobogó csak választott, lezárt vagy publikált fordulóra megy. Ha nincs ilyen forduló, a három gomb nem él.', 1, GETUTCDATE(), GETUTCDATE()),
-(@VersionID, N'DISP-WARN-1', NULL, N'Kivetítés: Ha nem az utolsó lezárt fordulót választják, figyelmeztetés jön. Dobogónál akkor is, ha nincs minden forduló lezárva.', 1, GETUTCDATE(), GETUTCDATE()),
-(@VersionID, N'DISP-STAND-1', NULL, N'Kivetítés: Ülésrend és Forduló állás továbbra is a nyitott fordulót veszi.', 1, GETUTCDATE(), GETUTCDATE()),
-(@VersionID, N'DISP-HDMI-1', NULL, N'Kivetítés: A személyzet HDMI-fala a lezárt forduló pontjait is mutatja.', 1, GETUTCDATE(), GETUTCDATE()),
-(@VersionID, N'UI-FULLSCREEN-1', NULL, N'Kivetítés és felület: Új teljes képernyő gomb a fejlécben.', 1, GETUTCDATE(), GETUTCDATE()),
+-- 3. Játékos telefon
+(@VersionID, N'OP-PLAYER-1', NULL, N'Játékos képernyőváltások: A váróterem, a szünet és a kérdés képernyő között megszűnt a villanás (a csapatválasztó nem ugrik fel indításkor, az Indítás nem dob vissza váróterembe).', 1, GETUTCDATE(), GETUTCDATE()),
+(@VersionID, N'OP-PLAYER-2', NULL, N'Szünet képernyő és azonnali kérdésépítés: A szünet képernyőn „X/Y" kérdésszámláló látszik a típus és a téma mellett; a telefon az indító SignalR pingből azonnal felépíti a kérdéslapot külön lekérdezés nélkül.', 1, GETUTCDATE(), GETUTCDATE()),
 
--- Belépő kód
-(@VersionID, N'PASS-QR-1', NULL, N'Belépő kód: A résztvevő adatlapján, játékos és játékmester sornál, személyes QR van. A saját telefon bejelentkezik, e-mail és kód nélkül, és ehhez az eszközhöz kötődik.', 1, GETUTCDATE(), GETUTCDATE()),
-(@VersionID, N'PASS-CHECKIN-1', NULL, N'Belépő kód: Ha az esemény már bejelentkezésen vagy azon túl van, megnyílik az adatlap. Játékosnál ez Belépett státuszt is jelent. Játékmesternél a státusz nem változik. Előtte várakozó képernyő.', 1, GETUTCDATE(), GETUTCDATE()),
-(@VersionID, N'PASS-BIND-1', NULL, N'Belépő kód: Másik telefon ugyanazzal a kóddal nem lép be. Elveszett telefonhoz az Új kód ad másikat.', 1, GETUTCDATE(), GETUTCDATE()),
+-- 4. Kvízmester
+(@VersionID, N'OP-QM-1', NULL, N'Kvízmester fordulókezelés: Ha a kvízmester indítás nélkül lép ki egy fordulóból, az nem vált „Folyamatban" állapotra és nem lép a második kérdésre; forduló elhagyásakor a játékosok a váróba kerülnek, a kivetítő pedig az alap képernyőre vált.', 1, GETUTCDATE(), GETUTCDATE()),
+(@VersionID, N'OP-QM-2', NULL, N'Kvízmester csapatlista és hanglejátszó: A forduló képernyőn a csapatlista azonnal csak a játékossal rendelkező csapatokat mutatja; a hanglejátszó sávjában a tekerés helyi blobról akkor is működik, ha a szerver nem támogatja a Range kéréseket.', 1, GETUTCDATE(), GETUTCDATE()),
 
--- Pontozás
-(@VersionID, N'SCORE-GM-1', NULL, N'Pontozás: Üres asztalt a mentés a pontozó játékmesterhez köti. Más játékmester asztalát is lehet pontozni, és a mentés után az asztal az övé lesz.', 1, GETUTCDATE(), GETUTCDATE()),
-(@VersionID, N'SCORE-ROUND-1', NULL, N'Pontozás: A fordulót csak a szervező lépteti Folyamatban állapotba. A játékmester mentése ezt nem teszi meg.', 1, GETUTCDATE(), GETUTCDATE()),
-(@VersionID, N'SCORE-LOCK-1', NULL, N'Pontozás: Lezárt vagy lejátszott asztalt a játékmester nem ír át. A szervező igen.', 1, GETUTCDATE(), GETUTCDATE()),
+-- 5. Kivetítő
+(@VersionID, N'DISP-OP-1', NULL, N'Olimpub kivetítő eredmények és váróterem: Animált forduló állás (nyers pontokból) és forduló vége (OpResultsBoard fali nézet); a váróterem létszámába csak az online játékosok (LastSeenUtc / Presence) számítanak bele.', 1, GETUTCDATE(), GETUTCDATE()),
+(@VersionID, N'DISP-OP-2', NULL, N'Kivetítő óra és PIN belépés: A kérdés kivetítésén az olvasási visszaszámlálás nem torzul tartás (hold) állapotban; a PIN-es kivetítő belépés és token-validálás az Olimpub modulra (Module = ''op'') és Kvízmester szerepkörre is működik.', 1, GETUTCDATE(), GETUTCDATE()),
 
--- Fejléc
-(@VersionID, N'UI-HEADER-1', NULL, N'Fejléc: A hírfolyam, az értesítés és a chat ikon ideiglenesen rejtve van, hogy mobilon elférjen a logó, a súgó és a teljes képernyő.', 1, GETUTCDATE(), GETUTCDATE()),
+-- 6. Kapcsolat, PTA és hibanaplózás
+(@VersionID, N'SYS-CONN-1', NULL, N'SignalR stabilitás és görgetés: Elutasított csatlakozás (401/403) után a watchdog 2 percig nem próbálkozik újra, sikeres csatlakozáskor pedig újratölti az élő állapotot (useOpLiveResync); oldalváltáskor a görgetés a tetejére ugrik, fül- és szűrőváltáskor viszont megmarad.', 1, GETUTCDATE(), GETUTCDATE()),
+(@VersionID, N'PTA-UI-1', NULL, N'PTA és felület javítások: Az ülésrend fal nem omlasztja össze a Chrome-ot monitorváltáskor, a kék lakat a lezártnak számító asztalokon is látszik, az Organizer oldalon a csempék és KPI-k szűk kijelzőn sem lógnak ki, a kliensoldali hibanapló pedig tartalmazza az útvonalat és a súlyosságot.', 1, GETUTCDATE(), GETUTCDATE()),
 
--- Backend (BE) módosítások
-(@VersionID, N'BE-PARTICIPANT-1', NULL, N'Backend: Résztvevők adatlapján szervezetnév megjelenítése (spGetEventUserDataSheet), valamint e-mail küldési engedély (EmailSendingEnabled) figyelembe vétele importálásnál és kiküldésnél.', 1, GETUTCDATE(), GETUTCDATE()),
-(@VersionID, N'BE-SOCIAL-1', NULL, N'Backend: Social Bónusz és arcade minijáték végpontok, valamint PTA camelCase és PascalCase JSON kulcsok felkészítése mentéskor.', 1, GETUTCDATE(), GETUTCDATE()),
-(@VersionID, N'BE-PASS-1', NULL, N'Backend: Személyes belépő kód végpontok (POST /auth/player-pass, POST /auth/player-device-join) és SQL tárolt eljárások (EJ.tblPlayerDevicePass, spCreateOrGetPlayerPass, spJoinPlayerDevicePass) JWT hitelesítéssel.', 1, GETUTCDATE(), GETUTCDATE()),
-(@VersionID, N'BE-SCORE-1', NULL, N'Backend: Rugalmas játékmesteri pontozás az EJ.spChangeEvent eljárásban (bármely játékmester és szervező pontozhat, mentéskor az asztal hozzárendelődik).', 1, GETUTCDATE(), GETUTCDATE()),
-
--- Még nem commitolt tételek
-(@VersionID, N'DEV-UNCOMMITTED-1', NULL, N'[Még nincs commitolva] Backend: Belépő kód tábla és eljárások (tblPlayerDevicePass, spCreateOrGetPlayerPass, spJoinPlayerDevicePass, PlayerPassEndpoints), valamint a módosított játékmesteri pontozás (EJ.spChangeEvent).', 1, GETUTCDATE(), GETUTCDATE()),
-(@VersionID, N'DEV-UNCOMMITTED-2', NULL, N'[Még nincs commitolva] Frontend: Személyes QR belépő kód felületek (PlayerPassSheet, PlayerPassPage, playerDevicePass), kivetítés és teljes képernyő finomhangolások, játékmesteri asztalvédelem és mobilos fejléc.', 1, GETUTCDATE(), GETUTCDATE());
+-- 7. Backend (BE) motor, pontozás és e-mail követés
+(@VersionID, N'BE-CARD-1', NULL, N'Backend kérdéslap és kiértékelés: A helyes válaszokat (CorrectJson) csak a személyzet kapja meg; az Op.SubmitAnswer szerveroldalon értékeli ki az összes kérdéstípust (single, multi, order, match, category, freetext), és SignalR-en csak a válaszadók számát (AnswerCount, RosterCount) publikálja.', 1, GETUTCDATE(), GETUTCDATE()),
+(@VersionID, N'BE-SCORE-1', NULL, N'Backend pontozás és tabella: Aktív színpadi/manuális forduló alatt az Op.AdjustTeam (+Pont / -Pont) közvetlenül a kérdés és a forduló pontszámát frissíti duplikáció nélkül; az Op.CloseRound dinamikus F-pont számításában csak a ténylegesen válaszoló csapatok és játékosok vesznek részt.', 1, GETUTCDATE(), GETUTCDATE()),
+(@VersionID, N'BE-PRESENCE-1', NULL, N'Backend jelenlét és kivetítő hitelesítés: Valós idejű játékos jelenlét (LastSeenUtc) és automatikus Op.Presence SignalR értesítés offline-ból online állapotba lépéskor; Bearer DisplayToken támogatás és TV csoport-kizárás a SignalR és Olimpub végpontokon.', 1, GETUTCDATE(), GETUTCDATE()),
+(@VersionID, N'BE-MAIL-1', NULL, N'MailerSend webhook és státusz követés: Háttérfolyamatba (Task.Run) szervezett webhook feldolgozás és GET/HEAD támogatás a 2 mp-es timeout tartásához, valamint intelligens címzett-alapú visszakeresés (EJ.spUpdateEmailOutboxProviderStatus) tömeges e-mail kiküldésnél.', 1, GETUTCDATE(), GETUTCDATE());
 GO

@@ -23,11 +23,21 @@ namespace EventJoy.Api
 
         [Function("EmailWebhookFunction")]
         public async Task<HttpResponseData> Run(
-            [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "webhooks/mailersend")] HttpRequestData req)
+            [HttpTrigger(AuthorizationLevel.Anonymous, "get", "post", "head", Route = "webhooks/mailersend")] HttpRequestData req)
         {
             _logger.LogInformation("Received MailerSend Webhook.");
 
+            if (req.Method.Equals("get", StringComparison.OrdinalIgnoreCase) ||
+                req.Method.Equals("head", StringComparison.OrdinalIgnoreCase))
+            {
+                return req.CreateResponse(System.Net.HttpStatusCode.OK);
+            }
+
             string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
+            if (string.IsNullOrWhiteSpace(requestBody))
+            {
+                return req.CreateResponse(System.Net.HttpStatusCode.OK);
+            }
             
             try
             {
@@ -52,6 +62,7 @@ namespace EventJoy.Api
                     actualMessageId = actualMessageId.Substring(5);
                 }
 
+                string recipientEmail = payload.Data.Recipient;
                 short providerStatusId = 0;
                 
                 switch (payload.Type)
@@ -75,22 +86,36 @@ namespace EventJoy.Api
                         return req.CreateResponse(System.Net.HttpStatusCode.OK);
                 }
 
-                using (var conn = new SqlConnection(_connectionString))
+                var actionDate = DateTimeOffset.UtcNow;
+
+                // Offload DB update to background so webhook responds within MailerSend's 2s timeout even on cold start
+                _ = Task.Run(async () =>
                 {
-                    await conn.OpenAsync();
-                    using (var cmd = new SqlCommand("[EJ].[spUpdateEmailOutboxProviderStatus]", conn))
+                    try
                     {
-                        cmd.CommandType = System.Data.CommandType.StoredProcedure;
-                        cmd.Parameters.AddWithValue("@MailerSendID", actualMessageId);
-                        cmd.Parameters.AddWithValue("@EmailAddress", payload.Data.Recipient);
-                        cmd.Parameters.AddWithValue("@ProviderStatusID", providerStatusId);
-                        cmd.Parameters.AddWithValue("@ActionDate", DateTimeOffset.UtcNow);
+                        using (var conn = new SqlConnection(_connectionString))
+                        {
+                            await conn.OpenAsync();
+                            using (var cmd = new SqlCommand("[EJ].[spUpdateEmailOutboxProviderStatus]", conn))
+                            {
+                                cmd.CommandType = System.Data.CommandType.StoredProcedure;
+                                cmd.Parameters.AddWithValue("@MailerSendID", actualMessageId);
+                                cmd.Parameters.AddWithValue("@EmailAddress", recipientEmail);
+                                cmd.Parameters.AddWithValue("@ProviderStatusID", providerStatusId);
+                                cmd.Parameters.AddWithValue("@ActionDate", actionDate);
 
-                        await cmd.ExecuteNonQueryAsync();
+                                await cmd.ExecuteNonQueryAsync();
+                            }
+                        }
+
+                        _logger.LogInformation($"Successfully processed MailerSend DLR for MessageID {actualMessageId}, Email {recipientEmail}. Status: {providerStatusId}");
                     }
-                }
+                    catch (Exception dbEx)
+                    {
+                        _logger.LogError(dbEx, $"Background DB update failed for MailerSend DLR MessageID {actualMessageId}, Email {recipientEmail}.");
+                    }
+                });
 
-                _logger.LogInformation($"Successfully processed MailerSend DLR for MessageID {actualMessageId}, Email {payload.Data.Recipient}. Status: {providerStatusId}");
                 return req.CreateResponse(System.Net.HttpStatusCode.OK);
             }
             catch (Exception ex)

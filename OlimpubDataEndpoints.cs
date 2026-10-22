@@ -1,4 +1,4 @@
-﻿using Azure.Storage.Blobs;
+using Azure.Storage.Blobs;
 using Azure.Storage.Sas;
 using System;
 using System.IO;
@@ -43,6 +43,36 @@ namespace EventJoy.Api
             return list;
         }
 
+        private async Task<bool> ValidateDisplayTokenAsync(HttpRequestData req, long eventId)
+        {
+            string? displayToken = null;
+            if (req.Headers.TryGetValues("X-Pta-Display-Token", out var headerValues))
+            {
+                displayToken = headerValues.FirstOrDefault();
+            }
+            else if (req.Headers.TryGetValues("Authorization", out var authValues))
+            {
+                var authHeader = authValues.FirstOrDefault();
+                if (!string.IsNullOrEmpty(authHeader) && authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+                {
+                    displayToken = authHeader.Substring("Bearer ".Length).Trim();
+                }
+            }
+
+            if (string.IsNullOrEmpty(displayToken)) return false;
+
+            using (var tokenConn = new SqlConnection(_connectionString))
+            {
+                await tokenConn.OpenAsync();
+                using (var tokenCmd = new SqlCommand("SELECT 1 FROM [PTA].[tblEventDisplayToken] WHERE Token = @Token AND EventID = @EventID AND ActiveFlg = 1 AND ExpiresAtUtc > SYSUTCDATETIME()", tokenConn))
+                {
+                    tokenCmd.Parameters.AddWithValue("@Token", displayToken);
+                    tokenCmd.Parameters.AddWithValue("@EventID", eventId);
+                    return await tokenCmd.ExecuteScalarAsync() != null;
+                }
+            }
+        }
+
         [Function("GetOlimpubEvent")]
         public async Task<HttpResponseData> GetEvent([HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "op/event/{id}")] HttpRequestData req, long id)
         {
@@ -51,21 +81,7 @@ namespace EventJoy.Api
 
             if (userId == null)
             {
-                if (req.Headers.TryGetValues("X-Pta-Display-Token", out var headerValues)) {
-                    var token = headerValues.FirstOrDefault();
-                    if (!string.IsNullOrEmpty(token)) {
-                        using (var tokenConn = new SqlConnection(_connectionString)) {
-                            await tokenConn.OpenAsync();
-                            using (var tokenCmd = new SqlCommand("SELECT 1 FROM [PTA].[tblEventDisplayToken] WHERE Token = @Token AND EventID = @EventID AND ActiveFlg = 1 AND ExpiresAtUtc > SYSUTCDATETIME()", tokenConn)) {
-                                tokenCmd.Parameters.AddWithValue("@Token", token);
-                                tokenCmd.Parameters.AddWithValue("@EventID", id);
-                                if (await tokenCmd.ExecuteScalarAsync() != null) {
-                                    isDisplay = true;
-                                }
-                            }
-                        }
-                    }
-                }
+                isDisplay = await ValidateDisplayTokenAsync(req, id);
 
                 if (!isDisplay)
                 {
@@ -115,7 +131,7 @@ namespace EventJoy.Api
                                                 }
                                                 responseDict[datasetName] = datasetRows[0];
                                             }
-                                                                                                                                    else if (datasetName == "OpEventQuestions" || datasetName == "OpExtraCatalog" || datasetName == "OpExtraPool")
+                                            else if (datasetName == "OpEventQuestions" || datasetName == "OpExtraCatalog" || datasetName == "OpExtraPool")
                                             {
                                                 BlobServiceClient blobServiceClient = new BlobServiceClient(_storageConnectionString);
                                                 BlobContainerClient containerClient = blobServiceClient.GetBlobContainerClient("op-media");
@@ -126,12 +142,15 @@ namespace EventJoy.Api
 
                                                     foreach (var key in new[] { "OptionsJson", "CorrectJson" })
                                                     {
-                                                        if (row.ContainsKey(key) && row[key] != null)
+                                                        if (row.ContainsKey(key))
                                                         {
-                                                            var parsed = JsonSerializer.Deserialize<JsonElement>(row[key]!.ToString()!);
-                                                            row[key.Replace("Json", "")] = parsed;
-                                                            if (key == "OptionsJson") optionsArray = parsed;
-                                                            if (key == "CorrectJson") correctsArray = parsed;
+                                                            if (row[key] != null)
+                                                            {
+                                                                var parsed = JsonSerializer.Deserialize<JsonElement>(row[key]!.ToString()!);
+                                                                row[key.Replace("Json", "")] = parsed;
+                                                                if (key == "OptionsJson") optionsArray = parsed;
+                                                                if (key == "CorrectJson") correctsArray = parsed;
+                                                            }
                                                             row.Remove(key);
                                                         }
                                                     }
@@ -141,19 +160,33 @@ namespace EventJoy.Api
                                                     string? imgKey = row.ContainsKey("ImageKey") ? row["ImageKey"]?.ToString() : null;
                                                     if (!string.IsNullOrEmpty(imgKey))
                                                     {
-                                                        BlobClient blobClient = containerClient.GetBlobClient($"{id}/{imgKey}");
-                                                        row["ImageUrl"] = blobClient.Uri.ToString();
+                                                        if (imgKey.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+                                                        {
+                                                            row["ImageUrl"] = imgKey;
+                                                        }
+                                                        else
+                                                        {
+                                                            BlobClient blobClient = containerClient.GetBlobClient($"{id}/{imgKey}");
+                                                            row["ImageUrl"] = blobClient.Uri.ToString();
+                                                        }
                                                     }
                                                     else
                                                     {
-                                                        row["ImageUrl"] = null;
+                                                        row["ImageUrl"] = row.ContainsKey("MediaUrl") ? row["MediaUrl"] : null;
                                                     }
 
                                                     string? audKey = row.ContainsKey("AudioKey") ? row["AudioKey"]?.ToString() : null;
                                                     if (!string.IsNullOrEmpty(audKey))
                                                     {
-                                                        BlobClient blobClient = containerClient.GetBlobClient($"{id}/{audKey}");
-                                                        row["AudioUrl"] = blobClient.Uri.ToString();
+                                                        if (audKey.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+                                                        {
+                                                            row["AudioUrl"] = audKey;
+                                                        }
+                                                        else
+                                                        {
+                                                            BlobClient blobClient = containerClient.GetBlobClient($"{id}/{audKey}");
+                                                            row["AudioUrl"] = blobClient.Uri.ToString();
+                                                        }
                                                     }
                                                     else
                                                     {
@@ -164,7 +197,50 @@ namespace EventJoy.Api
                                             }
                                             else if (datasetName == "OpLive" && datasetRows.Count > 0)
                                             {
-                                                responseDict[datasetName] = datasetRows[0];
+                                                var liveRow = datasetRows[0];
+                                                foreach (var jsonKey in new[] { "AnswersJson", "MatchesJson", "CategoriesJson", "MosaicOutTeamIdsJson" })
+                                                {
+                                                    if (liveRow.ContainsKey(jsonKey))
+                                                    {
+                                                        var rawVal = liveRow[jsonKey]?.ToString();
+                                                        if (!string.IsNullOrWhiteSpace(rawVal))
+                                                        {
+                                                            liveRow[jsonKey.Replace("Json", "")] = JsonSerializer.Deserialize<JsonElement>(rawVal);
+                                                        }
+                                                        else
+                                                        {
+                                                            liveRow[jsonKey.Replace("Json", "")] = Array.Empty<string>();
+                                                        }
+                                                        liveRow.Remove(jsonKey);
+                                                    }
+                                                }
+
+                                                if (liveRow.ContainsKey("ScreenJson"))
+                                                {
+                                                    var screenJsonStr = liveRow["ScreenJson"]?.ToString();
+                                                    liveRow.Remove("ScreenJson");
+                                                    if (!string.IsNullOrWhiteSpace(screenJsonStr))
+                                                    {
+                                                        try
+                                                        {
+                                                            var screenElem = JsonSerializer.Deserialize<JsonElement>(screenJsonStr);
+                                                            liveRow["ScreenPayload"] = screenElem;
+                                                            if (screenElem.ValueKind == JsonValueKind.Object)
+                                                            {
+                                                                foreach (var prop in new[] { "Teams", "Topics", "Kind", "Board", "RoundID", "RoundId", "ExtraGameId", "WinnerRoundID", "WinnerTitle" })
+                                                                {
+                                                                    if (screenElem.TryGetProperty(prop, out var propVal) && !liveRow.ContainsKey(prop))
+                                                                    {
+                                                                        liveRow[prop] = propVal.Clone();
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                        catch { }
+                                                    }
+                                                }
+
+                                                responseDict[datasetName] = liveRow;
                                             }
                                             else if (datasetName == "DisplayCast" && datasetRows.Count > 0)
                                             {
@@ -208,21 +284,7 @@ namespace EventJoy.Api
 
             if (userId == null)
             {
-                if (req.Headers.TryGetValues("X-Pta-Display-Token", out var headerValues)) {
-                    var token = headerValues.FirstOrDefault();
-                    if (!string.IsNullOrEmpty(token)) {
-                        using (var tokenConn = new SqlConnection(_connectionString)) {
-                            await tokenConn.OpenAsync();
-                            using (var tokenCmd = new SqlCommand("SELECT 1 FROM [PTA].[tblEventDisplayToken] WHERE Token = @Token AND EventID = @EventID AND ActiveFlg = 1 AND ExpiresAtUtc > SYSUTCDATETIME()", tokenConn)) {
-                                tokenCmd.Parameters.AddWithValue("@Token", token);
-                                tokenCmd.Parameters.AddWithValue("@EventID", id);
-                                if (await tokenCmd.ExecuteScalarAsync() != null) {
-                                    isDisplay = true;
-                                }
-                            }
-                        }
-                    }
-                }
+                isDisplay = await ValidateDisplayTokenAsync(req, id);
 
                 if (!isDisplay)
                 {
@@ -428,14 +490,23 @@ namespace EventJoy.Api
                 return req.CreateResponse(System.Net.HttpStatusCode.InternalServerError);
             }
         }
+
         private void FlattenQuestionOptions(Dictionary<string, object?> row, JsonElement? optionsArray, JsonElement? correctsArray)
         {
+            bool hasCorrects = correctsArray.HasValue && correctsArray.Value.ValueKind == JsonValueKind.Array;
+            string typeCode = (row.ContainsKey("TypeCode") ? row["TypeCode"]?.ToString() : null)?.Trim().ToLowerInvariant() ?? "single";
+
             for (int i = 1; i <= 8; i++)
             {
                 row[$"Answer{i}"] = null;
                 row[$"Match{i}"] = null;
                 row[$"IsCorrect{i}"] = false;
             }
+
+            var answersList = new List<string>();
+            var matchesList = new List<string>();
+            var categoriesList = new List<string>();
+            var optionIdToSlot = new Dictionary<int, int>();
 
             if (optionsArray.HasValue && optionsArray.Value.ValueKind == JsonValueKind.Array)
             {
@@ -444,30 +515,72 @@ namespace EventJoy.Api
                     if (opt.TryGetProperty("SortIndex", out var idxProp) && opt.TryGetProperty("ListType", out var listTypeProp) && opt.TryGetProperty("Value", out var valProp))
                     {
                         int idx = idxProp.GetInt32();
+                        string type = listTypeProp.GetString() ?? "";
+                        string val = valProp.GetString() ?? "";
+
+                        if (opt.TryGetProperty("id", out var idProp) && idProp.TryGetInt32(out int optId))
+                        {
+                            if (type == "left" || type == "options")
+                            {
+                                optionIdToSlot[optId] = idx;
+                            }
+                        }
+
                         if (idx >= 1 && idx <= 8)
                         {
-                            string type = listTypeProp.GetString() ?? "";
-                            if (type == "left") row[$"Answer{idx}"] = valProp.GetString();
-                            else if (type == "right") row[$"Match{idx}"] = valProp.GetString();
+                            if (type == "left" || type == "options")
+                            {
+                                row[$"Answer{idx}"] = val;
+                                answersList.Add(val);
+                            }
+                            else if (type == "right")
+                            {
+                                row[$"Match{idx}"] = val;
+                                matchesList.Add(val);
+                                if (typeCode == "category" && !string.IsNullOrWhiteSpace(val) && !categoriesList.Contains(val))
+                                {
+                                    categoriesList.Add(val);
+                                }
+                            }
                         }
                     }
                 }
             }
 
-            if (correctsArray.HasValue && correctsArray.Value.ValueKind == JsonValueKind.Array)
+            if (hasCorrects)
             {
-                foreach (var corr in correctsArray.Value.EnumerateArray())
+                foreach (var corr in correctsArray!.Value.EnumerateArray())
                 {
-                    if (corr.TryGetProperty("SortIndex", out var idxProp))
+                    if (typeCode == "freetext" && corr.TryGetProperty("TextValue", out var tvProp) && tvProp.ValueKind == JsonValueKind.String)
                     {
-                        int idx = idxProp.GetInt32();
+                        string? tv = tvProp.GetString();
+                        if (!string.IsNullOrWhiteSpace(tv))
+                        {
+                            row["Answer1"] = tv;
+                            if (answersList.Count == 0) answersList.Add(tv);
+                        }
+                    }
+
+                    if (corr.TryGetProperty("SortIndex", out var idxProp) && idxProp.ValueKind == JsonValueKind.Number && idxProp.TryGetInt32(out int idx))
+                    {
                         if (idx >= 1 && idx <= 8)
                         {
                             row[$"IsCorrect{idx}"] = true;
                         }
                     }
+                    else if (corr.TryGetProperty("OptionID", out var optIdProp) && optIdProp.ValueKind == JsonValueKind.Number && optIdProp.TryGetInt32(out int optId))
+                    {
+                        if (optionIdToSlot.TryGetValue(optId, out int slotIdx) && slotIdx >= 1 && slotIdx <= 8)
+                        {
+                            row[$"IsCorrect{slotIdx}"] = true;
+                        }
+                    }
                 }
             }
+
+            row["Answers"] = answersList;
+            row["Matches"] = matchesList;
+            row["Categories"] = categoriesList;
         }
     }
 }

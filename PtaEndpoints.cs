@@ -44,6 +44,7 @@ namespace EventJoy.Api
             }
 
             int eventId = (int)data!.EventID;
+            string? requestedModule = (data!.Module ?? data!.module)?.ToString();
 
             using (var conn = new SqlConnection(_sqlConnectionString))
             {
@@ -54,6 +55,10 @@ namespace EventJoy.Api
                     cmd.CommandType = CommandType.StoredProcedure;
                     cmd.Parameters.AddWithValue("@EventID", eventId);
                     cmd.Parameters.AddWithValue("@UserID", userId.Value);
+                    if (!string.IsNullOrWhiteSpace(requestedModule))
+                    {
+                        cmd.Parameters.AddWithValue("@Module", requestedModule);
+                    }
 
                     using (var reader = await cmd.ExecuteReaderAsync())
                     {
@@ -65,17 +70,29 @@ namespace EventJoy.Api
                             if (retVal != 1)
                             {
                                 var errorRes = req.CreateResponse(HttpStatusCode.BadRequest);
+                                await errorRes.WriteAsJsonAsync(new { ReturnValue = retVal, ReturnDescription = retDesc });
                                 return errorRes;
                             }
+
+                            string module = "pta";
+                            try
+                            {
+                                int modOrd = reader.GetOrdinal("Module");
+                                if (!reader.IsDBNull(modOrd)) module = reader.GetString(modOrd);
+                            }
+                            catch (IndexOutOfRangeException) { }
 
                             var result = new
                             {
                                 ReturnValue = retVal,
                                 EventID = reader.GetInt32(reader.GetOrdinal("EventID")),
+                                Module = module,
                                 Pin = reader.GetString(reader.GetOrdinal("Pin")),
                                 Token = reader.GetString(reader.GetOrdinal("Token")),
                                 ExpiresAtUtc = reader.GetDateTimeOffset(reader.GetOrdinal("ExpiresAtUtc")),
-                                Url = $"/profitability/event/{eventId}/display"
+                                Url = string.Equals(module, "op", StringComparison.OrdinalIgnoreCase)
+                                    ? $"/olimpub/event/{eventId}/display"
+                                    : $"/profitability/event/{eventId}/display"
                             };
 
                             var res = req.CreateResponse(HttpStatusCode.OK);
@@ -100,6 +117,8 @@ namespace EventJoy.Api
                 return req.CreateResponse(HttpStatusCode.BadRequest);
             }
 
+            string? requestedModule = (data!.Module ?? data!.module)?.ToString();
+
             using (var conn = new SqlConnection(_sqlConnectionString))
             {
                 await conn.OpenAsync();
@@ -110,6 +129,10 @@ namespace EventJoy.Api
                     if (data!.EventID != null) cmd.Parameters.AddWithValue("@EventID", (int)data!.EventID);
                     if (data!.EventUID != null) cmd.Parameters.AddWithValue("@EventUID", (Guid)data!.EventUID);
                     cmd.Parameters.AddWithValue("@Pin", (string)data!.Pin);
+                    if (!string.IsNullOrWhiteSpace(requestedModule))
+                    {
+                        cmd.Parameters.AddWithValue("@Module", requestedModule);
+                    }
 
                     using (var reader = await cmd.ExecuteReaderAsync())
                     {
@@ -123,10 +146,19 @@ namespace EventJoy.Api
                                 return errorRes;
                             }
 
+                            string module = requestedModule ?? "pta";
+                            try
+                            {
+                                int modOrd = reader.GetOrdinal("Module");
+                                if (!reader.IsDBNull(modOrd)) module = reader.GetString(modOrd);
+                            }
+                            catch (IndexOutOfRangeException) { }
+
                             var result = new
                             {
                                 ReturnValue = retVal,
                                 EventID = reader.GetInt32(reader.GetOrdinal("EventID")),
+                                Module = module,
                                 Token = reader.GetString(reader.GetOrdinal("Token")),
                                 ExpiresAtUtc = reader.GetDateTimeOffset(reader.GetOrdinal("ExpiresAtUtc"))
                             };
@@ -214,7 +246,7 @@ namespace EventJoy.Api
             }
 
             // Fetch the data
-                        var response = req.CreateResponse(HttpStatusCode.OK);
+            var response = req.CreateResponse(HttpStatusCode.OK);
 
             using (var conn = new SqlConnection(_sqlConnectionString))
             {
