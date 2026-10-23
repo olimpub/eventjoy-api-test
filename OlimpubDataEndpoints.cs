@@ -100,6 +100,10 @@ namespace EventJoy.Api
                 }
             }
 
+            var queryDict = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
+            string? rawScope = queryDict["scope"] ?? queryDict["Scope"];
+            string? scope = string.IsNullOrWhiteSpace(rawScope) ? null : rawScope.Split(',')[0].Trim().ToLowerInvariant();
+
             try
             {
                 var responseDict = new Dictionary<string, object?>();
@@ -114,6 +118,7 @@ namespace EventJoy.Api
                         cmd.Parameters.AddWithValue("@EventID", id);
                         cmd.Parameters.AddWithValue("@UserID", userId.HasValue ? (object)userId.Value : DBNull.Value);
                         cmd.Parameters.AddWithValue("@IsDisplay", isDisplay ? 1 : 0);
+                        cmd.Parameters.AddWithValue("@Scope", !string.IsNullOrEmpty(scope) ? (object)scope : DBNull.Value);
 
                         using (var reader = await cmd.ExecuteReaderAsync())
                         {
@@ -168,10 +173,15 @@ namespace EventJoy.Api
                                     {
                                         var parsed = JsonSerializer.Deserialize<JsonElement>(row[key]!.ToString()!);
                                         row[key.Replace("Json", "")] = parsed;
+                                        row[key] = parsed;
                                         if (key == "OptionsJson") optionsArray = parsed;
                                         if (key == "CorrectJson") correctsArray = parsed;
                                     }
-                                    row.Remove(key);
+                                    else
+                                    {
+                                        row[key.Replace("Json", "")] = null;
+                                        row[key] = null;
+                                    }
                                 }
                             }
 

@@ -6,7 +6,8 @@
 CREATE OR ALTER PROCEDURE [OP].[spGetEventData]
     @EventID BIGINT,
     @UserID BIGINT = NULL,
-    @IsDisplay BIT = 0
+    @IsDisplay BIT = 0,
+    @Scope NVARCHAR(32) = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -97,44 +98,52 @@ BEGIN
     WHERE r.EventID = @EventID AND r.ActiveFlg = 1;
 
     -- Dataset: OpEventQuestions
-    -- §5.1: A helyes választ (CorrectJson) csak a staff (QM / Organizer) kapja meg!
-    SELECT 'OpEventQuestions' AS DatasetName;
-    SELECT 
-        eq.id,
-        eq.EventID,
-        eq.RoundID,
-        eq.QuestionID,
-        eq.SortIndex,
-        eq.StatusCode,
-        TODATETIMEOFFSET(eq.StartedAtUtc, 0) AS StartedAtUtc,
-        TODATETIMEOFFSET(eq.AnswerStartedAtUtc, 0) AS AnswerStartedAtUtc,
-        TODATETIMEOFFSET(eq.StoppedAtUtc, 0) AS StoppedAtUtc,
-        (SELECT COUNT(DISTINCT EventUserID) FROM [OP].[tblAnswer] WHERE EventQuestionID = eq.id AND ActiveFlg = 1) AS AnswerCount,
-        eq.TimeSec,
-        eq.ClockPaused,
-        eq.ClockLeftMs,
-        q.Prompt,
-        q.MediaUrl,
-        q.ImageKey,
-        q.AudioKey,
-        qt.Code AS TypeCode,
-        COALESCE(topR.Name, topQ.Name, rt.Name, N'') AS TopicName,
-        (SELECT id, ListType, Value, SortIndex FROM [OP].[tblQuestionOption] WHERE QuestionID = q.id ORDER BY SortIndex FOR JSON PATH) AS OptionsJson,
-        CASE 
-            WHEN @IsDisplay = 1 THEN NULL 
-            WHEN (@IsQM = 1 OR @IsOrg = 1) THEN 
-                (SELECT OptionID, MatchOptionID, SortIndex, TextValue FROM [OP].[tblQuestionCorrectAnswer] WHERE QuestionID = q.id FOR JSON PATH)
-            ELSE NULL 
-        END AS CorrectJson
-    FROM [OP].[tblEventQuestion] eq
-    JOIN [OP].[tblQuestion] q ON eq.QuestionID = q.id
-    JOIN [OP].[tblQuestionType] qt ON q.QuestionTypeID = qt.id
-    JOIN [OP].[tblRound] r ON eq.RoundID = r.id
-    JOIN [OP].[tblRoundType] rt ON r.RoundTypeID = rt.id
-    LEFT JOIN [OP].[tblTopic] topR ON r.TopicID = topR.id
-    LEFT JOIN [OP].[tblTopic] topQ ON q.TopicID = topQ.id
-    WHERE r.EventID = @EventID AND eq.ActiveFlg = 1
-      AND (@IsQM = 1 OR @IsOrg = 1 OR eq.StatusCode = 'active' OR eq.id = r.FocusedEventQuestionID);
+    -- Teljes módban (scope nélkül / nem 'live') vagy QM/Organizer esetén az összes kérdést visszaadjuk.
+    -- Könnyű módban (@Scope = 'live') játékos/kivetítő esetén kihagyjuk.
+    IF @IsQM = 1 OR @IsOrg = 1 OR LOWER(ISNULL(@Scope, N'')) != N'live'
+    BEGIN
+        SELECT 'OpEventQuestions' AS DatasetName;
+        SELECT 
+            eq.id,
+            eq.id AS EventQuestionID,
+            eq.EventID,
+            eq.RoundID,
+            eq.QuestionID,
+            eq.SortIndex,
+            eq.StatusCode,
+            TODATETIMEOFFSET(eq.StartedAtUtc, 0) AS StartedAtUtc,
+            TODATETIMEOFFSET(eq.AnswerStartedAtUtc, 0) AS AnswerStartedAtUtc,
+            TODATETIMEOFFSET(eq.StoppedAtUtc, 0) AS StoppedAtUtc,
+            ISNULL(ans.AnswerCount, 0) AS AnswerCount,
+            eq.TimeSec,
+            eq.ClockPaused,
+            eq.ClockLeftMs,
+            q.Prompt,
+            q.MediaUrl,
+            q.ImageKey,
+            q.AudioKey,
+            qt.Code AS TypeCode,
+            COALESCE(topR.Name, topQ.Name, rt.Name, N'') AS TopicName,
+            (SELECT id, ListType, Value, SortIndex FROM [OP].[tblQuestionOption] WHERE QuestionID = q.id ORDER BY SortIndex FOR JSON PATH) AS OptionsJson,
+            CASE 
+                WHEN (@IsQM = 0 AND @IsOrg = 0 AND qt.Code = 'no_options') THEN NULL
+                ELSE (SELECT OptionID, MatchOptionID, SortIndex, TextValue FROM [OP].[tblQuestionCorrectAnswer] WHERE QuestionID = q.id FOR JSON PATH)
+            END AS CorrectJson
+        FROM [OP].[tblEventQuestion] eq
+        JOIN [OP].[tblQuestion] q ON eq.QuestionID = q.id
+        JOIN [OP].[tblQuestionType] qt ON q.QuestionTypeID = qt.id
+        JOIN [OP].[tblRound] r ON eq.RoundID = r.id
+        JOIN [OP].[tblRoundType] rt ON r.RoundTypeID = rt.id
+        LEFT JOIN [OP].[tblTopic] topR ON r.TopicID = topR.id
+        LEFT JOIN [OP].[tblTopic] topQ ON q.TopicID = topQ.id
+        LEFT JOIN (
+            SELECT EventQuestionID, COUNT(DISTINCT EventUserID) AS AnswerCount
+            FROM [OP].[tblAnswer]
+            WHERE ActiveFlg = 1
+            GROUP BY EventQuestionID
+        ) ans ON ans.EventQuestionID = eq.id
+        WHERE r.EventID = @EventID AND eq.ActiveFlg = 1;
+    END
 
     -- Dataset: OpLive (1 sor)
     SELECT 'OpLive' AS DatasetName;
@@ -160,6 +169,13 @@ BEGIN
         TODATETIMEOFFSET(eq.StoppedAtUtc, 0) AS StoppedAtUtc,
         eq.ClockPaused,
         eq.ClockLeftMs,
+        COALESCE(
+            CASE WHEN ISJSON(dc.PayloadJson) = 1 THEN COALESCE(JSON_VALUE(dc.PayloadJson, '$.ClockPhase'), JSON_VALUE(dc.PayloadJson, '$.clockPhase')) ELSE NULL END,
+            CASE WHEN eq.StatusCode = 'stopped' THEN N'done' WHEN eq.StatusCode = 'active' AND eq.ClockPaused = 1 THEN N'paused' WHEN eq.StatusCode = 'active' AND eq.ClockPaused = 0 THEN N'play' ELSE NULL END
+        ) AS DisplayClockPhase,
+        CASE WHEN rActive.id IS NOT NULL THEN (SELECT COUNT(*) FROM [OP].[tblEventQuestion] eqCnt WHERE eqCnt.RoundID = rActive.id AND eqCnt.ActiveFlg = 1) ELSE 0 END AS RoundQuestionCount,
+        nxt.NextQuestionNo,
+        nxt.NextTypeCode,
         -- Aktív kérdéslap mezők (§5.2) helyes válasz nélkül:
         q.Prompt,
         qt.Code AS TypeCode,
@@ -214,6 +230,15 @@ BEGIN
     LEFT JOIN [OP].[tblRoundType] rt ON rActive.RoundTypeID = rt.id
     LEFT JOIN [OP].[tblTopic] topR ON rActive.TopicID = topR.id
     LEFT JOIN [OP].[tblTopic] topQ ON q.TopicID = topQ.id
+    LEFT JOIN [OP].[DisplayCast] dc ON dc.EventID = @EventID
+    OUTER APPLY (
+        SELECT TOP 1 eqNext.SortIndex AS NextQuestionNo, qtNext.Code AS NextTypeCode
+        FROM [OP].[tblEventQuestion] eqNext
+        JOIN [OP].[tblQuestion] qNext ON eqNext.QuestionID = qNext.id
+        JOIN [OP].[tblQuestionType] qtNext ON qNext.QuestionTypeID = qtNext.id
+        WHERE rActive.id IS NOT NULL AND eqNext.RoundID = rActive.id AND eqNext.ActiveFlg = 1 AND eqNext.StatusCode = 'pending'
+        ORDER BY eqNext.SortIndex ASC, eqNext.id ASC
+    ) nxt
     WHERE es.EventID = @EventID;
 
     -- Dataset: DisplayCast (1 sor)
