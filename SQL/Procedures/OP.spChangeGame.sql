@@ -1306,16 +1306,46 @@ BEGIN
             DECLARE @ADJ_TeamID INT = JSON_VALUE(@Json, '$.Payload.TeamID');
             DECLARE @PenaltyTypeCode VARCHAR(50) = JSON_VALUE(@Json, '$.Payload.PenaltyTypeCode');
             DECLARE @ADJ_Direction NVARCHAR(50) = JSON_VALUE(@Json, '$.Payload.Direction');
+            DECLARE @RawPointsStr NVARCHAR(100) = COALESCE(JSON_VALUE(@Json, '$.Payload.Points'), JSON_VALUE(@Json, '$.Payload.points'));
+            DECLARE @ADJ_Points INT = NULL;
 
-            DECLARE @ADJ_Points INT = JSON_VALUE(@Json, '$.Payload.Points');
-            IF @ADJ_Points IS NULL AND @ADJ_Direction IS NOT NULL
+            IF @PenaltyTypeCode IN ('manual_plus', 'manual_minus')
             BEGIN
-                SET @ADJ_Points = CASE WHEN @ADJ_Direction = 'plus' THEN 10 WHEN @ADJ_Direction = 'minus' THEN -10 ELSE 0 END;
+                DECLARE @BaseManualPoints INT = 1;
+                IF @RawPointsStr IS NOT NULL
+                BEGIN
+                    SET @BaseManualPoints = TRY_CAST(@RawPointsStr AS INT);
+                    IF @BaseManualPoints IS NULL
+                       OR CAST(@BaseManualPoints AS NVARCHAR(100)) != LTRIM(RTRIM(@RawPointsStr))
+                       OR @BaseManualPoints NOT IN (1, 2, 5, 10, 20)
+                    BEGIN
+                        THROW 50035, N'Érvénytelen pontérték! Az engedélyezett értékek: 1, 2, 5, 10, 20.', 1;
+                    END
+                END
+
+                SET @ADJ_Points = CASE WHEN @PenaltyTypeCode = 'manual_minus' THEN -@BaseManualPoints ELSE @BaseManualPoints END;
             END
-            IF @ADJ_Points IS NULL
+            ELSE
             BEGIN
-                SET @ADJ_Points = (SELECT DefaultPoints FROM [OP].[tblPenaltyType] WHERE Code = @PenaltyTypeCode);
-                IF @ADJ_Points IS NULL SET @ADJ_Points = 0;
+                IF @RawPointsStr IS NOT NULL
+                BEGIN
+                    SET @ADJ_Points = TRY_CAST(@RawPointsStr AS INT);
+                    IF @ADJ_Points IS NULL
+                       OR CAST(@ADJ_Points AS NVARCHAR(100)) != LTRIM(RTRIM(@RawPointsStr))
+                       OR @ADJ_Points NOT IN (1, 2, 5, 10, 20)
+                    BEGIN
+                        THROW 50035, N'Érvénytelen pontérték! Az engedélyezett értékek: 1, 2, 5, 10, 20.', 1;
+                    END
+                END
+                IF @ADJ_Points IS NULL AND @ADJ_Direction IS NOT NULL
+                BEGIN
+                    SET @ADJ_Points = CASE WHEN @ADJ_Direction = 'plus' THEN 10 WHEN @ADJ_Direction = 'minus' THEN -10 ELSE 0 END;
+                END
+                IF @ADJ_Points IS NULL
+                BEGIN
+                    SET @ADJ_Points = (SELECT DefaultPoints FROM [OP].[tblPenaltyType] WHERE Code = @PenaltyTypeCode);
+                    IF @ADJ_Points IS NULL SET @ADJ_Points = 0;
+                END
             END
 
             DECLARE @PenaltyTypeID INT = (SELECT id FROM [OP].[tblPenaltyType] WHERE Code = @PenaltyTypeCode);
