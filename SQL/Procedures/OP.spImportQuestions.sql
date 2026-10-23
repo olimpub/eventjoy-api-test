@@ -1,4 +1,4 @@
-﻿-- =============================================
+-- =============================================
 -- Author:		EventJoy
 -- Create date: 
 -- Description:	V2 Refactored Question Import
@@ -84,8 +84,9 @@ BEGIN
             DECLARE @ErrMsgR NVARCHAR(2048) = N'Ismeretlen forduló típus kód(ok): ' + ISNULL(@MissingRTypes, 'ismeretlen'); THROW 50020, @ErrMsgR, 1;
         END
 
-        -- Idő alapbeállítás gyorsasági játékoknál
+        -- Idő alapbeállítás gyorsasági és opció nélküli játékoknál
         UPDATE #IncomingQuestions SET TimeSec = 12 WHERE RoundTypeCode = 'fast_5' AND TimeSec IS NULL;
+        UPDATE #IncomingQuestions SET TimeSec = 30 WHERE TypeCode = 'no_options' AND TimeSec IS NULL;
 
         -- Topics
         INSERT INTO [OP].[tblTopic] (Name, ActiveFlg)
@@ -139,8 +140,12 @@ BEGIN
         UNION ALL SELECT NewQuestionID, TypeCode, 8, Answer8, Match8, IsCorrect8 FROM #IncomingQuestions WHERE Answer8 IS NOT NULL;
 
         INSERT INTO [OP].[tblQuestionCorrectAnswer] (QuestionID, TextValue)
-        SELECT QuestionID, AnswerText FROM #TempOptions WHERE TypeCode = 'freetext' AND SlotIndex = 1;
-        DELETE FROM #TempOptions WHERE TypeCode = 'freetext';
+        SELECT QuestionID, AnswerText
+        FROM #TempOptions
+        WHERE TypeCode IN ('freetext', 'no_options')
+          AND SlotIndex = 1
+          AND NULLIF(LTRIM(RTRIM(AnswerText)), N'') IS NOT NULL;
+        DELETE FROM #TempOptions WHERE TypeCode IN ('freetext', 'no_options');
 
         DECLARE @InsertedOpts TABLE (SlotIndex INT, QuestionID INT, InsertedID INT);
         MERGE INTO [OP].[tblQuestionOption] AS target

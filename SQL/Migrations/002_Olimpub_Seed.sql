@@ -35,6 +35,7 @@ IF NOT EXISTS (SELECT 1 FROM [OP].[tblQuestionType] WHERE Code = 'order') INSERT
 IF NOT EXISTS (SELECT 1 FROM [OP].[tblQuestionType] WHERE Code = 'match') INSERT INTO [OP].[tblQuestionType] (Code, Name, DefaultRunningTimeSec, ActiveFlg) VALUES ('match', 'Párosító', 90, 1);
 IF NOT EXISTS (SELECT 1 FROM [OP].[tblQuestionType] WHERE Code = 'category') INSERT INTO [OP].[tblQuestionType] (Code, Name, DefaultRunningTimeSec, ActiveFlg) VALUES ('category', 'Kategorizáló', 90, 1);
 IF NOT EXISTS (SELECT 1 FROM [OP].[tblQuestionType] WHERE Code = 'freetext') INSERT INTO [OP].[tblQuestionType] (Code, Name, DefaultRunningTimeSec, ActiveFlg) VALUES ('freetext', 'Szabadszöveges', 60, 1);
+IF NOT EXISTS (SELECT 1 FROM [OP].[tblQuestionType] WHERE Code = 'no_options') INSERT INTO [OP].[tblQuestionType] (Code, Name, DefaultRunningTimeSec, ActiveFlg) VALUES ('no_options', 'Opció nélküli', 30, 1);
 
 -- 4. Forduló státuszok (RoundStatus)
 IF NOT EXISTS (SELECT 1 FROM [OP].[tblRoundStatus] WHERE Code = 'pending') INSERT INTO [OP].[tblRoundStatus] (Code, Name, ActiveFlg) VALUES ('pending', 'Várakozik', 1);

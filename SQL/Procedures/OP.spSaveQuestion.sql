@@ -1,4 +1,4 @@
-﻿SET QUOTED_IDENTIFIER ON;
+SET QUOTED_IDENTIFIER ON;
 GO
 CREATE OR ALTER PROCEDURE [OP].[spSaveQuestion]
     @Json NVARCHAR(MAX),
@@ -89,7 +89,7 @@ BEGIN
         SELECT 
             @QuestionID, COALESCE(TypeCode, [Type]), Prompt, ISNULL(TimeSec, 0), SortIndex,
             ImageKey, AudioKey, MediaUrl,
-            Answer1, Match1, CAST(IsCorrect1 AS BIT), Answer2, Match2, CAST(IsCorrect2 AS BIT),
+            COALESCE(Answer1, JSON_VALUE(@Json, '$.Answers[0]')), Match1, CAST(IsCorrect1 AS BIT), Answer2, Match2, CAST(IsCorrect2 AS BIT),
             Answer3, Match3, CAST(IsCorrect3 AS BIT), Answer4, Match4, CAST(IsCorrect4 AS BIT),
             Answer5, Match5, CAST(IsCorrect5 AS BIT), Answer6, Match6, CAST(IsCorrect6 AS BIT),
             Answer7, Match7, CAST(IsCorrect7 AS BIT), Answer8, Match8, CAST(IsCorrect8 AS BIT)
@@ -113,6 +113,8 @@ BEGIN
             Answer8 NVARCHAR(MAX) '$.Answer8', Match8 NVARCHAR(MAX) '$.Match8', IsCorrect8 BIT '$.IsCorrect8'
         );
         
+        DECLARE @NewTypeCode NVARCHAR(50) = (SELECT TypeCode FROM #IncomingQuestions);
+        DECLARE @NewQuestionTypeID INT = (SELECT id FROM [OP].[tblQuestionType] WHERE Code = @NewTypeCode);
         DECLARE @NewPrompt NVARCHAR(MAX) = (SELECT Prompt FROM #IncomingQuestions);
         DECLARE @NewTimeSec INT = (SELECT TimeSec FROM #IncomingQuestions);
         DECLARE @NewSortIndex INT = (SELECT SortIndex FROM #IncomingQuestions);
@@ -122,7 +124,8 @@ BEGIN
         
         -- 2. Update tblQuestion
         UPDATE [OP].[tblQuestion]
-        SET Prompt = @NewPrompt,
+        SET QuestionTypeID = ISNULL(@NewQuestionTypeID, QuestionTypeID),
+            Prompt = @NewPrompt,
             TimeSec = @NewTimeSec,
             ImageKey = @NewImageKey,
             AudioKey = @NewAudioKey,
@@ -180,13 +183,15 @@ BEGIN
         UNION ALL SELECT NewQuestionID, TypeCode, 7, Answer7, Match7, IsCorrect7 FROM #IncomingQuestions WHERE Answer7 IS NOT NULL
         UNION ALL SELECT NewQuestionID, TypeCode, 8, Answer8, Match8, IsCorrect8 FROM #IncomingQuestions WHERE Answer8 IS NOT NULL;
 
-        -- 5.1 FREETEXT kezelése
+        -- 5.1 FREETEXT és NO_OPTIONS kezelése
         INSERT INTO [OP].[tblQuestionCorrectAnswer] (QuestionID, TextValue)
         SELECT QuestionID, AnswerText
         FROM #TempOptions
-        WHERE TypeCode = 'freetext' AND SlotIndex = 1;
+        WHERE TypeCode IN ('freetext', 'no_options')
+          AND SlotIndex = 1
+          AND NULLIF(LTRIM(RTRIM(AnswerText)), N'') IS NOT NULL;
 
-        DELETE FROM #TempOptions WHERE TypeCode = 'freetext';
+        DELETE FROM #TempOptions WHERE TypeCode IN ('freetext', 'no_options');
 
         -- 5.2 BAL OLDALI / FŐ OPCIÓK BESZÚRÁSA
         DECLARE @InsertedOpts TABLE (SlotIndex INT, QuestionID INT, InsertedID INT);

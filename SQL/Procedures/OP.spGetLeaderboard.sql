@@ -32,7 +32,7 @@ BEGIN
     IF @IsQM = 1 OR @IsOrg = 1 OR @UserID IS NULL
     BEGIN
         INSERT INTO @StatusFilter (StatusID)
-        SELECT id FROM [OP].[tblRoundStatus] WHERE Code = 'closed';
+        SELECT id FROM [OP].[tblRoundStatus] WHERE Code IN ('closed', 'active');
     END
 
     IF @Board = 'main'

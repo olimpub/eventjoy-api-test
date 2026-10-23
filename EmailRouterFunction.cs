@@ -29,7 +29,7 @@ namespace EventJoy.Api
         }
 
         [Function("EmailBatchSenderTimer")]
-        public async Task Run([TimerTrigger("*/10 * * * * *")] TimerInfo myTimer)
+        public async Task Run([TimerTrigger("*/30 * * * * *")] TimerInfo myTimer)
         {
             try
             {

@@ -85,6 +85,7 @@ BEGIN
         JOIN [OP].[tblQuestionType] qt ON q.QuestionTypeID = qt.id
         WHERE q.TopicID = @TopicID 
           AND q.QuestionTypeID != @SingleTypeID 
+          AND qt.Code != 'no_options'
           AND q.ActiveFlg = 1
           AND NOT EXISTS (
               SELECT 1 FROM [OP].[tblEventQuestion] eq 

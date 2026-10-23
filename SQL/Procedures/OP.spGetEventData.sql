@@ -24,13 +24,18 @@ BEGIN
     END
     ELSE
     BEGIN
-        IF EXISTS (SELECT 1 FROM [EJ].[tblEventUser] eu JOIN [EJ].[tblEventRole] er ON eu.EventRoleID = er.id JOIN [EJ].[tblRole] r ON er.RoleID = r.id WHERE eu.EventID = @EventID AND eu.UserID = @UserID AND r.RoleTypeID = 1 AND eu.ActiveFlg = 1) SET @IsOrg = 1;
-        IF EXISTS (SELECT 1 FROM [EJ].[tblEventUser] eu JOIN [EJ].[tblEventRole] er ON eu.EventRoleID = er.id JOIN [EJ].[tblRole] r ON er.RoleID = r.id WHERE eu.EventID = @EventID AND eu.UserID = @UserID AND (r.id = 7 OR r.RoleTypeID = 2) AND eu.ActiveFlg = 1) SET @IsQM = 1;
-        
-        SELECT TOP 1 @MyEventUserID = eu.id 
-        FROM [EJ].[tblEventUser] eu 
+        SELECT
+            @IsOrg = CAST(MAX(CASE WHEN r.RoleTypeID = 1 THEN 1 ELSE 0 END) AS BIT),
+            @IsQM = CAST(MAX(CASE WHEN r.id = 7 OR r.RoleTypeID = 2 THEN 1 ELSE 0 END) AS BIT),
+            @MyEventUserID = MAX(eu.id)
+        FROM [EJ].[tblEventUser] eu
+        LEFT JOIN [EJ].[tblEventRole] er ON eu.EventRoleID = er.id
+        LEFT JOIN [EJ].[tblRole] r ON er.RoleID = r.id
         WHERE eu.EventID = @EventID AND eu.UserID = @UserID AND eu.ActiveFlg = 1;
-        
+
+        SET @IsOrg = ISNULL(@IsOrg, 0);
+        SET @IsQM = ISNULL(@IsQM, 0);
+
         IF @MyEventUserID IS NOT NULL
         BEGIN
             SET @IsPlayer = 1;
@@ -117,7 +122,7 @@ BEGIN
         (SELECT id, ListType, Value, SortIndex FROM [OP].[tblQuestionOption] WHERE QuestionID = q.id ORDER BY SortIndex FOR JSON PATH) AS OptionsJson,
         CASE 
             WHEN @IsDisplay = 1 THEN NULL 
-            WHEN (@IsQM = 1 OR @IsOrg = 1) OR eq.StatusCode IN ('active', 'stopped') THEN 
+            WHEN (@IsQM = 1 OR @IsOrg = 1) THEN 
                 (SELECT OptionID, MatchOptionID, SortIndex, TextValue FROM [OP].[tblQuestionCorrectAnswer] WHERE QuestionID = q.id FOR JSON PATH)
             ELSE NULL 
         END AS CorrectJson
@@ -129,7 +134,7 @@ BEGIN
     LEFT JOIN [OP].[tblTopic] topR ON r.TopicID = topR.id
     LEFT JOIN [OP].[tblTopic] topQ ON q.TopicID = topQ.id
     WHERE r.EventID = @EventID AND eq.ActiveFlg = 1
-      AND (@IsQM = 1 OR @IsOrg = 1 OR eq.StatusCode IN ('active', 'stopped'));
+      AND (@IsQM = 1 OR @IsOrg = 1 OR eq.StatusCode = 'active' OR eq.id = r.FocusedEventQuestionID);
 
     -- Dataset: OpLive (1 sor)
     SELECT 'OpLive' AS DatasetName;
@@ -170,7 +175,7 @@ BEGIN
              ELSE NULL
         END AS AudioUrl,
         q.MediaUrl,
-        CASE WHEN eq.id IS NULL OR qt.Code = 'freetext' THEN '[]'
+        CASE WHEN eq.id IS NULL OR qt.Code IN ('freetext', 'no_options') THEN '[]'
              ELSE ISNULL((SELECT '[' + STRING_AGG('"' + STRING_ESCAPE(ISNULL(qo.Value, N''), 'json') + '"', ',') WITHIN GROUP (ORDER BY qo.SortIndex ASC, qo.id ASC) + ']' FROM [OP].[tblQuestionOption] qo WHERE qo.QuestionID = q.id AND qo.ListType IN ('options', 'left')), '[]')
         END AS AnswersJson,
         CASE WHEN eq.id IS NULL THEN '[]'
@@ -217,11 +222,24 @@ BEGIN
 
     -- Dataset: OpPenalties
     SELECT 'OpPenalties' AS DatasetName;
-    SELECT p.id, p.EventID, p.TeamID, p.Points, p.PenaltyTypeID, pt.Code AS PenaltyTypeCode, p.UndoOfID, p.EventUserID, p.CreatedAtUtc
+    SELECT
+        p.id,
+        p.EventID,
+        p.TeamID,
+        p.Points,
+        p.PenaltyTypeID,
+        CASE
+            WHEN pt.Code = 'karaoke_pro' AND p.Points < 0 THEN 'manual_minus'
+            WHEN pt.Code = 'karaoke_pro' THEN 'manual_plus'
+            ELSE pt.Code
+        END AS PenaltyTypeCode,
+        p.UndoOfID,
+        p.EventUserID,
+        p.CreatedAtUtc
     FROM [OP].[tblPenalty] p
     LEFT JOIN [OP].[tblPenaltyType] pt ON p.PenaltyTypeID = pt.id
     WHERE p.EventID = @EventID
       AND p.ActiveFlg = 1
-      AND ISNULL(pt.Code, '') NOT IN ('mozaik_correct', 'karaoke_pro');
+      AND ISNULL(pt.Code, '') != 'mozaik_wrong';
 END
 GO

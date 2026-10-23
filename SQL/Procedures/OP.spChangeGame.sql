@@ -21,10 +21,20 @@ BEGIN
 
         DECLARE @IsQM BIT = 0;
         DECLARE @IsOrg BIT = 0;
+        DECLARE @CallerEventUserID BIGINT = NULL;
         IF @UserID IS NOT NULL
         BEGIN
-            IF EXISTS (SELECT 1 FROM [EJ].[tblEventUser] eu JOIN [EJ].[tblEventRole] er ON eu.EventRoleID = er.id JOIN [EJ].[tblRole] r ON er.RoleID = r.id WHERE eu.EventID = @EventID AND eu.UserID = @UserID AND r.RoleTypeID = 1 AND eu.ActiveFlg = 1) SET @IsOrg = 1;
-            IF EXISTS (SELECT 1 FROM [EJ].[tblEventUser] eu JOIN [EJ].[tblEventRole] er ON eu.EventRoleID = er.id JOIN [EJ].[tblRole] r ON er.RoleID = r.id WHERE eu.EventID = @EventID AND eu.UserID = @UserID AND (r.id = 7 OR r.RoleTypeID = 2) AND eu.ActiveFlg = 1) SET @IsQM = 1;
+            SELECT
+                @IsOrg = CAST(MAX(CASE WHEN r.RoleTypeID = 1 THEN 1 ELSE 0 END) AS BIT),
+                @IsQM = CAST(MAX(CASE WHEN r.id = 7 OR r.RoleTypeID = 2 THEN 1 ELSE 0 END) AS BIT),
+                @CallerEventUserID = MAX(eu.id)
+            FROM [EJ].[tblEventUser] eu
+            LEFT JOIN [EJ].[tblEventRole] er ON eu.EventRoleID = er.id
+            LEFT JOIN [EJ].[tblRole] r ON er.RoleID = r.id
+            WHERE eu.EventID = @EventID AND eu.UserID = @UserID AND eu.ActiveFlg = 1;
+
+            SET @IsOrg = ISNULL(@IsOrg, 0);
+            SET @IsQM = ISNULL(@IsQM, 0);
         END
 
         IF @Action NOT IN (N'Op.SubmitAnswer', N'Op.JoinTeam', N'Op.LeaveTeam', N'Op.React', N'Op.MosaicBuzz')
@@ -476,14 +486,16 @@ BEGIN
                 CAST(JSON_VALUE(@Json, '$.Payload.ExtraQuestionID') AS INT)
             );
 
-            DECLARE @SQ_StartRoundType VARCHAR(50) = (
-                SELECT rt.Code
-                FROM [OP].[tblEventQuestion] eq
-                JOIN [OP].[tblRound] r ON eq.RoundID = r.id
-                JOIN [OP].[tblRoundType] rt ON r.RoundTypeID = rt.id
-                WHERE eq.id = @CardEQID
-            );
-            DECLARE @SQ_InitPaused BIT = CASE WHEN ISNULL(@SQ_StartRoundType, 'main_quiz') = 'main_quiz' THEN 1 ELSE 0 END;
+            DECLARE @SQ_StartRoundType VARCHAR(50), @SQ_QuestionType VARCHAR(50);
+            SELECT @SQ_StartRoundType = rt.Code, @SQ_QuestionType = qt.Code
+            FROM [OP].[tblEventQuestion] eq
+            JOIN [OP].[tblQuestion] q ON eq.QuestionID = q.id
+            JOIN [OP].[tblQuestionType] qt ON q.QuestionTypeID = qt.id
+            JOIN [OP].[tblRound] r ON eq.RoundID = r.id
+            JOIN [OP].[tblRoundType] rt ON r.RoundTypeID = rt.id
+            WHERE eq.id = @CardEQID;
+
+            DECLARE @SQ_InitPaused BIT = CASE WHEN @SQ_QuestionType = 'no_options' OR ISNULL(@SQ_StartRoundType, 'main_quiz') = 'main_quiz' THEN 1 ELSE 0 END;
             DECLARE @SQ_InitAnswerUtc DATETIME2 = CASE WHEN @SQ_InitPaused = 0 THEN @NowUtc ELSE NULL END;
 
             UPDATE p
@@ -526,10 +538,16 @@ BEGIN
 
             IF @CardEQID IS NOT NULL
             BEGIN
-                DECLARE @NQ_RoundType VARCHAR(50) = (
-                    SELECT rt.Code FROM [OP].[tblRound] r JOIN [OP].[tblRoundType] rt ON r.RoundTypeID = rt.id WHERE r.id = @NQ_RoundID
-                );
-                DECLARE @NQ_InitPaused BIT = CASE WHEN ISNULL(@NQ_RoundType, 'main_quiz') = 'main_quiz' THEN 1 ELSE 0 END;
+                DECLARE @NQ_RoundType VARCHAR(50), @NQ_QuestionType VARCHAR(50);
+                SELECT @NQ_RoundType = rt.Code, @NQ_QuestionType = qt.Code
+                FROM [OP].[tblEventQuestion] eq
+                JOIN [OP].[tblQuestion] q ON eq.QuestionID = q.id
+                JOIN [OP].[tblQuestionType] qt ON q.QuestionTypeID = qt.id
+                JOIN [OP].[tblRound] r ON eq.RoundID = r.id
+                JOIN [OP].[tblRoundType] rt ON r.RoundTypeID = rt.id
+                WHERE eq.id = @CardEQID;
+
+                DECLARE @NQ_InitPaused BIT = CASE WHEN @NQ_QuestionType = 'no_options' OR ISNULL(@NQ_RoundType, 'main_quiz') = 'main_quiz' THEN 1 ELSE 0 END;
                 DECLARE @NQ_InitAnswerUtc DATETIME2 = CASE WHEN @NQ_InitPaused = 0 THEN @NowUtc ELSE NULL END;
 
                 UPDATE p
@@ -575,14 +593,16 @@ BEGIN
             DELETE FROM [OP].[tblQuestionScore] WHERE EventQuestionID = @CardEQID;
             DELETE FROM [OP].[tblShadowScore] WHERE EventQuestionID = @CardEQID;
 
-            DECLARE @RQ_RoundType VARCHAR(50) = (
-                SELECT rt.Code
-                FROM [OP].[tblEventQuestion] eq
-                JOIN [OP].[tblRound] r ON eq.RoundID = r.id
-                JOIN [OP].[tblRoundType] rt ON r.RoundTypeID = rt.id
-                WHERE eq.id = @CardEQID
-            );
-            DECLARE @RQ_InitPaused BIT = CASE WHEN ISNULL(@RQ_RoundType, 'main_quiz') = 'main_quiz' THEN 1 ELSE 0 END;
+            DECLARE @RQ_RoundType VARCHAR(50), @RQ_QuestionType VARCHAR(50);
+            SELECT @RQ_RoundType = rt.Code, @RQ_QuestionType = qt.Code
+            FROM [OP].[tblEventQuestion] eq
+            JOIN [OP].[tblQuestion] q ON eq.QuestionID = q.id
+            JOIN [OP].[tblQuestionType] qt ON q.QuestionTypeID = qt.id
+            JOIN [OP].[tblRound] r ON eq.RoundID = r.id
+            JOIN [OP].[tblRoundType] rt ON r.RoundTypeID = rt.id
+            WHERE eq.id = @CardEQID;
+
+            DECLARE @RQ_InitPaused BIT = CASE WHEN @RQ_QuestionType = 'no_options' OR ISNULL(@RQ_RoundType, 'main_quiz') = 'main_quiz' THEN 1 ELSE 0 END;
             DECLARE @RQ_InitAnswerUtc DATETIME2 = CASE WHEN @RQ_InitPaused = 0 THEN @NowUtc ELSE NULL END;
 
             UPDATE p
@@ -819,7 +839,7 @@ BEGIN
             JOIN [OP].[tblAnswer] a ON latest.id = a.id
             LEFT JOIN [OP].[tblTeamMember] tm ON a.EventUserID = tm.EventUserID AND tm.ActiveFlg = 1;
 
-            IF @RawsMode = 'team'
+            IF @TypeCode != 'no_options' AND @RawsMode = 'team'
             BEGIN
                 DECLARE @P_alap DECIMAL(12,4) = CASE @TypeCode WHEN 'single' THEN 80 WHEN 'multi' THEN 90 WHEN 'order' THEN 100 WHEN 'match' THEN 100 WHEN 'category' THEN 110 WHEN 'freetext' THEN 120 ELSE 80 END;
 
@@ -857,7 +877,7 @@ BEGIN
                 LEFT JOIN #TeamStats ts ON t.id = ts.TeamID
                 WHERE t.EventID = @EventID AND t.ActiveFlg = 1;
             END
-            ELSE IF @RawsMode = 'fastest'
+            ELSE IF @TypeCode != 'no_options' AND @RawsMode = 'fastest'
             BEGIN
                 SELECT
                     TeamID,
@@ -874,7 +894,7 @@ BEGIN
                 FROM #FastestTeams;
             END
 
-            IF @FGivenMode = 'after_question' AND @FPointMode = 'fixed'
+            IF @TypeCode != 'no_options' AND @FGivenMode = 'after_question' AND @FPointMode = 'fixed'
             BEGIN
                 SELECT TeamID, RawS, ROW_NUMBER() OVER (ORDER BY RawS DESC) AS Rnk
                 INTO #QuestionWinners
@@ -1111,6 +1131,19 @@ BEGIN
                 THROW 50032, N'A kérdés már le van zárva vagy nem is aktív!', 1;
             END
 
+            IF EXISTS (
+                SELECT 1 FROM [OP].[tblEventQuestion] eq
+                JOIN [OP].[tblQuestion] q ON eq.QuestionID = q.id
+                JOIN [OP].[tblQuestionType] qt ON q.QuestionTypeID = qt.id
+                WHERE eq.id = @SUB_EventQuestionID AND qt.Code = 'no_options'
+            )
+            BEGIN
+                COMMIT TRANSACTION;
+                SELECT 1 AS ReturnValue, N'Opció nélküli kérdéshez nem tartozik válaszbeküldés.' AS ReturnDescription;
+                SELECT TargetGroup, EventName, CustomPayload AS PayloadJson FROM @SignalRTargets;
+                RETURN;
+            END
+
             IF EXISTS (SELECT 1 FROM [OP].[tblEventQuestion] WHERE id = @SUB_EventQuestionID AND ClockPaused = 1)
             BEGIN
                 THROW 50032, N'A kérdés szünetel vagy még felolvasás alatt van!', 1;
@@ -1259,7 +1292,6 @@ BEGIN
             );
 
             INSERT INTO @SignalRTargets (TargetGroup, EventName, CustomPayload) VALUES
-                ('event_' + CAST(@EventID AS VARCHAR) + '_gamer', @Action, @SAPing),
                 ('event_' + CAST(@EventID AS VARCHAR) + '_gamemaster', @Action, @SAPing),
                 ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', @Action, @SAPing),
                 ('event_' + CAST(@EventID AS VARCHAR) + '_display', @Action, @SAPing);
@@ -1293,7 +1325,16 @@ BEGIN
                 FROM [OP].[tblRound] r
                 JOIN [OP].[tblRoundType] rt ON r.RoundTypeID = rt.id
                 JOIN [OP].[tblRoundStatus] rs ON r.RoundStatusID = rs.id
-                WHERE r.EventID = @EventID AND r.ActiveFlg = 1 AND rt.Code = 'manual_display' AND rs.Code = 'active'
+                WHERE r.EventID = @EventID AND r.ActiveFlg = 1 AND rs.Code = 'active'
+                  AND (
+                      rt.Code = 'manual_display'
+                      OR EXISTS (
+                          SELECT 1 FROM [OP].[tblEventQuestion] eqNo
+                          JOIN [OP].[tblQuestion] qNo ON eqNo.QuestionID = qNo.id
+                          JOIN [OP].[tblQuestionType] qtNo ON qNo.QuestionTypeID = qtNo.id
+                          WHERE eqNo.RoundID = r.id AND eqNo.StatusCode = 'active' AND eqNo.ActiveFlg = 1 AND qtNo.Code = 'no_options'
+                      )
+                  )
                 ORDER BY r.SortIndex ASC, r.id ASC
             );
 
@@ -1743,7 +1784,7 @@ BEGIN
             WHERE eq.id = @CardEQID;
 
             DECLARE @C_AnswersJson NVARCHAR(MAX) = CASE
-                WHEN @C_TypeCode = 'freetext' THEN '[]'
+                WHEN @C_TypeCode IN ('freetext', 'no_options') THEN '[]'
                 ELSE ISNULL((SELECT '[' + STRING_AGG('"' + STRING_ESCAPE(ISNULL(qo.Value, N''), 'json') + '"', ',') WITHIN GROUP (ORDER BY qo.SortIndex ASC, qo.id ASC) + ']' FROM [OP].[tblQuestionOption] qo WHERE qo.QuestionID = @C_QuestionID AND qo.ListType IN ('options', 'left')), '[]')
             END;
 

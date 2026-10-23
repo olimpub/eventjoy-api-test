@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Threading.Tasks;
 using Microsoft.Azure.Functions.Worker;
@@ -80,36 +80,37 @@ namespace EventJoy.Api
                             }
 
                             // Második ResultSet: SignalR Service Bus Outbox!
+                            var messages = new System.Collections.Generic.List<Azure.Messaging.ServiceBus.ServiceBusMessage>();
                             if (returnValue == 1 && await reader.NextResultAsync())
+                            {
+                                while (await reader.ReadAsync())
+                                {
+                                    var targetGroup = reader["TargetGroup"]?.ToString();
+                                    var eventName = reader["EventName"]?.ToString();
+                                    var payloadJson = reader["PayloadJson"]?.ToString();
+
+                                    if (!string.IsNullOrEmpty(targetGroup) && !string.IsNullOrEmpty(eventName) && !string.IsNullOrEmpty(payloadJson))
+                                    {
+                                        var sbPayload = new { TargetGroup = targetGroup, EventName = eventName, PayloadJson = System.Text.Json.JsonSerializer.Deserialize<object>(payloadJson) };
+                                        var sbMessage = new Azure.Messaging.ServiceBus.ServiceBusMessage(System.Text.Json.JsonSerializer.Serialize(sbPayload))
+                                        {
+                                            MessageId = Guid.NewGuid().ToString()
+                                        };
+                                        sbMessage.ApplicationProperties["channel"] = "signalr";
+                                        messages.Add(sbMessage);
+                                    }
+                                }
+                            }
+                            reader.Close();
+                            conn.Close();
+
+                            if (returnValue == 1 && messages.Count > 0)
                             {
                                 if (_serviceBusClient != null)
                                 {
                                     await using var sender = _serviceBusClient.CreateSender("communication");
-                                    var messages = new System.Collections.Generic.List<Azure.Messaging.ServiceBus.ServiceBusMessage>();
-
-                                    while (await reader.ReadAsync())
-                                    {
-                                        var targetGroup = reader["TargetGroup"]?.ToString();
-                                        var eventName = reader["EventName"]?.ToString();
-                                        var payloadJson = reader["PayloadJson"]?.ToString();
-
-                                        if (!string.IsNullOrEmpty(targetGroup) && !string.IsNullOrEmpty(eventName) && !string.IsNullOrEmpty(payloadJson))
-                                        {
-                                            var sbPayload = new { TargetGroup = targetGroup, EventName = eventName, PayloadJson = System.Text.Json.JsonSerializer.Deserialize<object>(payloadJson) };
-                                            var sbMessage = new Azure.Messaging.ServiceBus.ServiceBusMessage(System.Text.Json.JsonSerializer.Serialize(sbPayload))
-                                            {
-                                                MessageId = Guid.NewGuid().ToString()
-                                            };
-                                            sbMessage.ApplicationProperties["channel"] = "signalr";
-                                            messages.Add(sbMessage);
-                                        }
-                                    }
-
-                                    if (messages.Count > 0)
-                                    {
-                                        await sender.SendMessagesAsync(messages);
-                                        _logger.LogInformation($"Successfully published {messages.Count} Olimpub SignalR messages to ServiceBus.");
-                                    }
+                                    await sender.SendMessagesAsync(messages);
+                                    _logger.LogInformation($"Successfully published {messages.Count} Olimpub SignalR messages to ServiceBus.");
                                 }
                                 else
                                 {

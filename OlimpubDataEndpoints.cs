@@ -19,12 +19,21 @@ namespace EventJoy.Api
         private readonly string _connectionString;
         private readonly string _jwtSecret = Environment.GetEnvironmentVariable("JwtSecret") ?? "eventjoy_nagyon_titkos_es_biztonsagos_256bit_kulcs_2026_!!";
         private readonly string _storageConnectionString = Environment.GetEnvironmentVariable("AzureWebJobsStorage") ?? string.Empty;
+        private readonly BlobContainerClient? _opMediaContainer;
 
         public OlimpubDataEndpoints(ILoggerFactory loggerFactory)
         {
             _logger = loggerFactory.CreateLogger<OlimpubDataEndpoints>();
             _connectionString = Environment.GetEnvironmentVariable("SqlConnectionString")
                 ?? throw new InvalidOperationException("SqlConnectionString app setting is missing.");
+            if (!string.IsNullOrWhiteSpace(_storageConnectionString))
+            {
+                try
+                {
+                    _opMediaContainer = new BlobServiceClient(_storageConnectionString).GetBlobContainerClient("op-media");
+                }
+                catch { }
+            }
         }
 
         private async Task<List<Dictionary<string, object?>>> ReadResultSetAsync(SqlDataReader reader)
@@ -94,6 +103,7 @@ namespace EventJoy.Api
             try
             {
                 var responseDict = new Dictionary<string, object?>();
+                var rawDatasets = new List<(string Name, List<Dictionary<string, object?>> Rows)>();
 
                 using (var conn = new SqlConnection(_connectionString))
                 {
@@ -110,156 +120,149 @@ namespace EventJoy.Api
                             do
                             {
                                 var rows = await ReadResultSetAsync(reader);
-                                if (rows.Count > 0)
+                                if (rows.Count > 0 && rows[0].ContainsKey("DatasetName") && rows[0].Count == 1)
                                 {
-                                    if (rows[0].ContainsKey("DatasetName") && rows[0].Count == 1)
+                                    string datasetName = rows[0]["DatasetName"]?.ToString() ?? "Unknown";
+                                    if (await reader.NextResultAsync())
                                     {
-                                        string datasetName = rows[0]["DatasetName"]?.ToString() ?? "Unknown";
-                                        if (await reader.NextResultAsync())
-                                        {
-                                            var datasetRows = await ReadResultSetAsync(reader);
-                                            // Handle JSON columns in OpSettings and OpEventQuestions
-                                            if (datasetName == "OpSettings" && datasetRows.Count > 0)
-                                            {
-                                                foreach (var key in new[] { "TopicIdsJson", "ExtraGameIdsJson" })
-                                                {
-                                                    if (datasetRows[0].ContainsKey(key) && datasetRows[0][key] != null)
-                                                    {
-                                                        datasetRows[0][key.Replace("Json", "")] = JsonSerializer.Deserialize<JsonElement>(datasetRows[0][key]!.ToString()!);
-                                                        datasetRows[0].Remove(key);
-                                                    }
-                                                }
-                                                responseDict[datasetName] = datasetRows[0];
-                                            }
-                                            else if (datasetName == "OpEventQuestions" || datasetName == "OpExtraCatalog" || datasetName == "OpExtraPool")
-                                            {
-                                                BlobServiceClient blobServiceClient = new BlobServiceClient(_storageConnectionString);
-                                                BlobContainerClient containerClient = blobServiceClient.GetBlobContainerClient("op-media");
-                                                foreach (var row in datasetRows)
-                                                {
-                                                    JsonElement? optionsArray = null;
-                                                    JsonElement? correctsArray = null;
-
-                                                    foreach (var key in new[] { "OptionsJson", "CorrectJson" })
-                                                    {
-                                                        if (row.ContainsKey(key))
-                                                        {
-                                                            if (row[key] != null)
-                                                            {
-                                                                var parsed = JsonSerializer.Deserialize<JsonElement>(row[key]!.ToString()!);
-                                                                row[key.Replace("Json", "")] = parsed;
-                                                                if (key == "OptionsJson") optionsArray = parsed;
-                                                                if (key == "CorrectJson") correctsArray = parsed;
-                                                            }
-                                                            row.Remove(key);
-                                                        }
-                                                    }
-                                                    
-                                                    FlattenQuestionOptions(row, optionsArray, correctsArray);
-
-                                                    string? imgKey = row.ContainsKey("ImageKey") ? row["ImageKey"]?.ToString() : null;
-                                                    if (!string.IsNullOrEmpty(imgKey))
-                                                    {
-                                                        if (imgKey.StartsWith("http", StringComparison.OrdinalIgnoreCase))
-                                                        {
-                                                            row["ImageUrl"] = imgKey;
-                                                        }
-                                                        else
-                                                        {
-                                                            BlobClient blobClient = containerClient.GetBlobClient($"{id}/{imgKey}");
-                                                            row["ImageUrl"] = blobClient.Uri.ToString();
-                                                        }
-                                                    }
-                                                    else
-                                                    {
-                                                        row["ImageUrl"] = row.ContainsKey("MediaUrl") ? row["MediaUrl"] : null;
-                                                    }
-
-                                                    string? audKey = row.ContainsKey("AudioKey") ? row["AudioKey"]?.ToString() : null;
-                                                    if (!string.IsNullOrEmpty(audKey))
-                                                    {
-                                                        if (audKey.StartsWith("http", StringComparison.OrdinalIgnoreCase))
-                                                        {
-                                                            row["AudioUrl"] = audKey;
-                                                        }
-                                                        else
-                                                        {
-                                                            BlobClient blobClient = containerClient.GetBlobClient($"{id}/{audKey}");
-                                                            row["AudioUrl"] = blobClient.Uri.ToString();
-                                                        }
-                                                    }
-                                                    else
-                                                    {
-                                                        row["AudioUrl"] = null;
-                                                    }
-                                                }
-                                                responseDict[datasetName] = datasetRows;
-                                            }
-                                            else if (datasetName == "OpLive" && datasetRows.Count > 0)
-                                            {
-                                                var liveRow = datasetRows[0];
-                                                foreach (var jsonKey in new[] { "AnswersJson", "MatchesJson", "CategoriesJson", "MosaicOutTeamIdsJson" })
-                                                {
-                                                    if (liveRow.ContainsKey(jsonKey))
-                                                    {
-                                                        var rawVal = liveRow[jsonKey]?.ToString();
-                                                        if (!string.IsNullOrWhiteSpace(rawVal))
-                                                        {
-                                                            liveRow[jsonKey.Replace("Json", "")] = JsonSerializer.Deserialize<JsonElement>(rawVal);
-                                                        }
-                                                        else
-                                                        {
-                                                            liveRow[jsonKey.Replace("Json", "")] = Array.Empty<string>();
-                                                        }
-                                                        liveRow.Remove(jsonKey);
-                                                    }
-                                                }
-
-                                                if (liveRow.ContainsKey("ScreenJson"))
-                                                {
-                                                    var screenJsonStr = liveRow["ScreenJson"]?.ToString();
-                                                    liveRow.Remove("ScreenJson");
-                                                    if (!string.IsNullOrWhiteSpace(screenJsonStr))
-                                                    {
-                                                        try
-                                                        {
-                                                            var screenElem = JsonSerializer.Deserialize<JsonElement>(screenJsonStr);
-                                                            liveRow["ScreenPayload"] = screenElem;
-                                                            if (screenElem.ValueKind == JsonValueKind.Object)
-                                                            {
-                                                                foreach (var prop in new[] { "Teams", "Topics", "Kind", "Board", "RoundID", "RoundId", "ExtraGameId", "WinnerRoundID", "WinnerTitle" })
-                                                                {
-                                                                    if (screenElem.TryGetProperty(prop, out var propVal) && !liveRow.ContainsKey(prop))
-                                                                    {
-                                                                        liveRow[prop] = propVal.Clone();
-                                                                    }
-                                                                }
-                                                            }
-                                                        }
-                                                        catch { }
-                                                    }
-                                                }
-
-                                                responseDict[datasetName] = liveRow;
-                                            }
-                                            else if (datasetName == "DisplayCast" && datasetRows.Count > 0)
-                                            {
-                                                var row = datasetRows[0];
-                                                if (row.ContainsKey("PayloadJson") && row["PayloadJson"] != null) {
-                                                    row["Payload"] = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(row["PayloadJson"]!.ToString()!);
-                                                    row.Remove("PayloadJson");
-                                                }
-                                                responseDict[datasetName] = row;
-                                            }
-                                            else
-                                            {
-                                                responseDict[datasetName] = datasetRows;
-                                            }
-                                        }
+                                        var datasetRows = await ReadResultSetAsync(reader);
+                                        rawDatasets.Add((datasetName, datasetRows));
                                     }
                                 }
                             } while (await reader.NextResultAsync());
                         }
+                    }
+                }
+
+                string blobBasePrefix = _opMediaContainer != null
+                    ? $"{_opMediaContainer.Uri}/{id}/"
+                    : $"https://eventjoyteststorage.blob.core.windows.net/op-media/{id}/";
+
+                foreach (var (datasetName, datasetRows) in rawDatasets)
+                {
+                    // Handle JSON columns in OpSettings and OpEventQuestions
+                    if (datasetName == "OpSettings" && datasetRows.Count > 0)
+                    {
+                        foreach (var key in new[] { "TopicIdsJson", "ExtraGameIdsJson" })
+                        {
+                            if (datasetRows[0].ContainsKey(key) && datasetRows[0][key] != null)
+                            {
+                                datasetRows[0][key.Replace("Json", "")] = JsonSerializer.Deserialize<JsonElement>(datasetRows[0][key]!.ToString()!);
+                                datasetRows[0].Remove(key);
+                            }
+                        }
+                        responseDict[datasetName] = datasetRows[0];
+                    }
+                    else if (datasetName == "OpEventQuestions" || datasetName == "OpExtraCatalog" || datasetName == "OpExtraPool")
+                    {
+                        foreach (var row in datasetRows)
+                        {
+                            JsonElement? optionsArray = null;
+                            JsonElement? correctsArray = null;
+
+                            foreach (var key in new[] { "OptionsJson", "CorrectJson" })
+                            {
+                                if (row.ContainsKey(key))
+                                {
+                                    if (row[key] != null)
+                                    {
+                                        var parsed = JsonSerializer.Deserialize<JsonElement>(row[key]!.ToString()!);
+                                        row[key.Replace("Json", "")] = parsed;
+                                        if (key == "OptionsJson") optionsArray = parsed;
+                                        if (key == "CorrectJson") correctsArray = parsed;
+                                    }
+                                    row.Remove(key);
+                                }
+                            }
+
+                            FlattenQuestionOptions(row, optionsArray, correctsArray);
+
+                            string? imgKey = row.ContainsKey("ImageKey") ? row["ImageKey"]?.ToString() : null;
+                            if (!string.IsNullOrEmpty(imgKey))
+                            {
+                                row["ImageUrl"] = imgKey.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+                                    ? imgKey
+                                    : blobBasePrefix + imgKey;
+                            }
+                            else
+                            {
+                                row["ImageUrl"] = row.ContainsKey("MediaUrl") ? row["MediaUrl"] : null;
+                            }
+
+                            string? audKey = row.ContainsKey("AudioKey") ? row["AudioKey"]?.ToString() : null;
+                            if (!string.IsNullOrEmpty(audKey))
+                            {
+                                row["AudioUrl"] = audKey.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+                                    ? audKey
+                                    : blobBasePrefix + audKey;
+                            }
+                            else
+                            {
+                                row["AudioUrl"] = null;
+                            }
+                        }
+                        responseDict[datasetName] = datasetRows;
+                    }
+                    else if (datasetName == "OpLive" && datasetRows.Count > 0)
+                    {
+                        var liveRow = datasetRows[0];
+                        foreach (var jsonKey in new[] { "AnswersJson", "MatchesJson", "CategoriesJson", "MosaicOutTeamIdsJson" })
+                        {
+                            if (liveRow.ContainsKey(jsonKey))
+                            {
+                                var rawVal = liveRow[jsonKey]?.ToString();
+                                if (!string.IsNullOrWhiteSpace(rawVal))
+                                {
+                                    liveRow[jsonKey.Replace("Json", "")] = JsonSerializer.Deserialize<JsonElement>(rawVal);
+                                }
+                                else
+                                {
+                                    liveRow[jsonKey.Replace("Json", "")] = Array.Empty<string>();
+                                }
+                                liveRow.Remove(jsonKey);
+                            }
+                        }
+
+                        if (liveRow.ContainsKey("ScreenJson"))
+                        {
+                            var screenJsonStr = liveRow["ScreenJson"]?.ToString();
+                            liveRow.Remove("ScreenJson");
+                            if (!string.IsNullOrWhiteSpace(screenJsonStr))
+                            {
+                                try
+                                {
+                                    var screenElem = JsonSerializer.Deserialize<JsonElement>(screenJsonStr);
+                                    liveRow["ScreenPayload"] = screenElem;
+                                    if (screenElem.ValueKind == JsonValueKind.Object)
+                                    {
+                                        foreach (var prop in new[] { "Teams", "Topics", "Kind", "Board", "RoundID", "RoundId", "ExtraGameId", "WinnerRoundID", "WinnerTitle" })
+                                        {
+                                            if (screenElem.TryGetProperty(prop, out var propVal) && !liveRow.ContainsKey(prop))
+                                            {
+                                                liveRow[prop] = propVal.Clone();
+                                            }
+                                        }
+                                    }
+                                }
+                                catch { }
+                            }
+                        }
+
+                        responseDict[datasetName] = liveRow;
+                    }
+                    else if (datasetName == "DisplayCast" && datasetRows.Count > 0)
+                    {
+                        var row = datasetRows[0];
+                        if (row.ContainsKey("PayloadJson") && row["PayloadJson"] != null)
+                        {
+                            row["Payload"] = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(row["PayloadJson"]!.ToString()!);
+                            row.Remove("PayloadJson");
+                        }
+                        responseDict[datasetName] = row;
+                    }
+                    else
+                    {
+                        responseDict[datasetName] = datasetRows;
                     }
                 }
 
@@ -551,7 +554,7 @@ namespace EventJoy.Api
             {
                 foreach (var corr in correctsArray!.Value.EnumerateArray())
                 {
-                    if (typeCode == "freetext" && corr.TryGetProperty("TextValue", out var tvProp) && tvProp.ValueKind == JsonValueKind.String)
+                    if ((typeCode == "freetext" || typeCode == "no_options") && corr.TryGetProperty("TextValue", out var tvProp) && tvProp.ValueKind == JsonValueKind.String)
                     {
                         string? tv = tvProp.GetString();
                         if (!string.IsNullOrWhiteSpace(tv))
