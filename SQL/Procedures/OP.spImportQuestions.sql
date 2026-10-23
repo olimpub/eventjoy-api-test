@@ -28,12 +28,14 @@ BEGIN
         IF OBJECT_ID('tempdb..#IncomingQuestions') IS NOT NULL DROP TABLE #IncomingQuestions;
 
         SELECT 
-            RowIndex,
-            TopicName,
-            TypeCode,
+            COALESCE(RowIndex, SortIndex) AS RowIndex,
+            NULLIF(LTRIM(RTRIM(COALESCE(TopicName, Topic))), N'') AS TopicName,
+            LOWER(LTRIM(RTRIM(COALESCE(TypeCode, [Type])))) AS TypeCode,
             Prompt,
             TimeSec,
             MediaUrl,
+            ImageKey,
+            AudioKey,
             RoundTypeCode,
             Answer1, IsCorrect1, Match1,
             Answer2, IsCorrect2, Match2,
@@ -52,11 +54,16 @@ BEGIN
         FROM OPENJSON(@Json, '$.Questions')
         WITH (
             RowIndex INT '$.RowIndex',
+            SortIndex INT '$.SortIndex',
             TopicName NVARCHAR(120) '$.TopicName',
+            Topic NVARCHAR(120) '$.Topic',
             TypeCode NVARCHAR(16) '$.TypeCode',
+            [Type] NVARCHAR(16) '$.Type',
             Prompt NVARCHAR(MAX) '$.Prompt',
             TimeSec INT '$.TimeSec',
             MediaUrl NVARCHAR(500) '$.MediaUrl',
+            ImageKey NVARCHAR(500) '$.ImageKey',
+            AudioKey NVARCHAR(500) '$.AudioKey',
             RoundTypeCode VARCHAR(50) '$.RoundTypeCode',
             Answer1 NVARCHAR(500) '$.Answer1', IsCorrect1 BIT '$.IsCorrect1', Match1 NVARCHAR(500) '$.Match1',
             Answer2 NVARCHAR(500) '$.Answer2', IsCorrect2 BIT '$.IsCorrect2', Match2 NVARCHAR(500) '$.Match2',
@@ -115,8 +122,8 @@ BEGIN
         USING #IncomingQuestions AS source
         ON 1=0
         WHEN NOT MATCHED THEN
-            INSERT (TopicID, QuestionTypeID, Prompt, TimeSec, MediaUrl, ActiveFlg, CreatedAtUtc, LastCreatedUserID)
-            VALUES (source.TopicID, source.QuestionTypeID, source.Prompt, ISNULL(source.TimeSec, 0), source.MediaUrl, 1, @Now, @UserID)
+            INSERT (TopicID, QuestionTypeID, Prompt, TimeSec, MediaUrl, ImageKey, AudioKey, ActiveFlg, CreatedAtUtc, LastCreatedUserID)
+            VALUES (source.TopicID, source.QuestionTypeID, source.Prompt, ISNULL(source.TimeSec, 0), source.MediaUrl, source.ImageKey, source.AudioKey, 1, @Now, @UserID)
         OUTPUT source.TempId, inserted.id INTO @InsertedQuestions;
 
         UPDATE i SET i.NewQuestionID = q.InsertedID
