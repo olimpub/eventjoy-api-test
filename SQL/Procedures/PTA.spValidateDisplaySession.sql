@@ -21,7 +21,8 @@ BEGIN
     END
 
     DECLARE @Now DATETIMEOFFSET = SYSUTCDATETIME();
-    DECLARE @Token NVARCHAR(80);
+    DECLARE @NowUtc DATETIME2 = SYSUTCDATETIME();
+    DECLARE @MasterToken NVARCHAR(80);
     DECLARE @ExpiresAtUtc DATETIMEOFFSET;
     DECLARE @FoundModule NVARCHAR(16);
 
@@ -35,7 +36,7 @@ BEGIN
     END
 
     SELECT TOP 1
-        @Token = Token,
+        @MasterToken = Token,
         @ExpiresAtUtc = ExpiresAtUtc,
         @FoundModule = Module
     FROM [PTA].[tblEventDisplayToken]
@@ -47,10 +48,10 @@ BEGIN
     ORDER BY id DESC;
 
     -- Fallback: ha a token másik modullal lett létrehozva ugyanarra az eseményre és PIN-re
-    IF @Token IS NULL
+    IF @MasterToken IS NULL
     BEGIN
         SELECT TOP 1
-            @Token = Token,
+            @MasterToken = Token,
             @ExpiresAtUtc = ExpiresAtUtc,
             @FoundModule = Module
         FROM [PTA].[tblEventDisplayToken]
@@ -61,12 +62,24 @@ BEGIN
         ORDER BY id DESC;
     END
 
-    IF @Token IS NULL
+    IF @MasterToken IS NULL
     BEGIN
         SELECT -1 AS ReturnValue, N'Érvénytelen vagy lejárt PIN.' AS ReturnDescription;
         RETURN;
     END
 
-    SELECT 1 AS ReturnValue, N'OK' AS ReturnDescription, @ActualEventID AS EventID, ISNULL(@FoundModule, ISNULL(@Module, 'pta')) AS Module, @Token AS Token, @ExpiresAtUtc AS ExpiresAtUtc;
+    DECLARE @ResolvedModule NVARCHAR(16) = ISNULL(@FoundModule, ISNULL(@Module, 'pta'));
+    DECLARE @SessionToken NVARCHAR(80) = LOWER(REPLACE(NEWID(), '-', '')) + LOWER(REPLACE(NEWID(), '-', ''));
+
+    INSERT INTO [PTA].[tblEventDisplayToken] (EventID, Module, Pin, Token, ExpiresAtUtc, ActiveFlg, TokenActiveFlg, ConnectedAtUtc, LastSeenUtc)
+    VALUES (@ActualEventID, @ResolvedModule, @Pin, @SessionToken, @ExpiresAtUtc, 1, 1, @NowUtc, @NowUtc);
+
+    DECLARE @DisplayID INT = SCOPE_IDENTITY();
+
+    UPDATE [PTA].[tblEventDisplayToken]
+    SET Label = N'Kijelző ' + CAST(@DisplayID AS NVARCHAR(20))
+    WHERE id = @DisplayID AND Label IS NULL;
+
+    SELECT 1 AS ReturnValue, N'OK' AS ReturnDescription, @DisplayID AS DisplayID, @ActualEventID AS EventID, @ResolvedModule AS Module, @SessionToken AS Token, @ExpiresAtUtc AS ExpiresAtUtc;
 END
 GO

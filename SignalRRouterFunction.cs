@@ -26,7 +26,7 @@ namespace EventJoy.Api
         [Function("SignalRRouterFunction")]
         [SignalROutput(HubName = "eventHub", ConnectionStringSetting = "AzureSignalRConnectionString")]
         public SignalRMessageAction? Run(
-            [ServiceBusTrigger("communication", "signalr", Connection = "ServiceBusConnection")] string mySbMsg)
+            [ServiceBusTrigger("%CommunicationTopic%", "signalr", Connection = "ServiceBusConnection")] string mySbMsg)
         {
             _logger.LogInformation($"SignalRRouter received message: {mySbMsg}");
 

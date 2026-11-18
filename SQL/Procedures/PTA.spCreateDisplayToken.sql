@@ -58,7 +58,8 @@ BEGIN
     END
 
     UPDATE [PTA].[tblEventDisplayToken]
-    SET ActiveFlg = 0
+    SET ActiveFlg = 0,
+        TokenActiveFlg = 0
     WHERE EventID = @EventID AND Module = @Module AND ActiveFlg = 1;
 
     DECLARE @EndAtUtc DATETIMEOFFSET;
@@ -72,9 +73,11 @@ BEGIN
         SET @ExpiresAtUtc = DATEADD(hour, 4, @EndAtUtc);
     END
 
-    INSERT INTO [PTA].[tblEventDisplayToken] (EventID, Module, Pin, Token, ExpiresAtUtc)
-    VALUES (@EventID, @Module, @Pin, @Token, @ExpiresAtUtc);
+    INSERT INTO [PTA].[tblEventDisplayToken] (EventID, Module, Pin, Token, ExpiresAtUtc, ActiveFlg, TokenActiveFlg)
+    VALUES (@EventID, @Module, @Pin, @Token, @ExpiresAtUtc, 1, 1);
 
-    SELECT 1 AS ReturnValue, N'OK' AS ReturnDescription, @EventID AS EventID, @Module AS Module, @Pin AS Pin, @Token AS Token, @ExpiresAtUtc AS ExpiresAtUtc;
+    DECLARE @DisplayID INT = SCOPE_IDENTITY();
+
+    SELECT 1 AS ReturnValue, N'OK' AS ReturnDescription, @DisplayID AS DisplayID, @EventID AS EventID, @Module AS Module, @Pin AS Pin, @Token AS Token, @ExpiresAtUtc AS ExpiresAtUtc;
 END
 GO

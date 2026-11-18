@@ -31,7 +31,7 @@ namespace EventJoy.Api
         }
 
         [Function("SmsRouterFunction")]
-        public async Task Run([ServiceBusTrigger("communication", "sms", Connection = "ServiceBusConnection")] string mySbMsg)
+        public async Task Run([ServiceBusTrigger("%CommunicationTopic%", "sms", Connection = "ServiceBusConnection")] string mySbMsg)
         {
             _logger.LogInformation($"C# ServiceBus trigger processing SMS message: {mySbMsg}");
 

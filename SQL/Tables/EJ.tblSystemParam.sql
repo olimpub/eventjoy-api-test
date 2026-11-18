@@ -25,6 +25,6 @@ INSERT INTO [EJ].[tblSystemParam] (ParamName, ParamValue, Description)
 VALUES 
     ('RunningMode', 'Test', 'Aktuális futási környezet: Local, Test vagy Live'),
     ('FrontendBaseUrl_Local', 'http://localhost:9000', 'Frontend elérhetősége lokális fejlesztéshez'),
-    ('FrontendBaseUrl_Test', 'https://testapp.eventjoy.hu', 'Frontend elérhetősége teszt/staging környezethez'),
+    ('FrontendBaseUrl_Test', 'https://apptest.eventjoy.hu', 'Frontend elérhetősége teszt/staging környezethez'),
     ('FrontendBaseUrl_Live', 'https://app.eventjoy.hu', 'Frontend elérhetősége éles környezethez');
 GO

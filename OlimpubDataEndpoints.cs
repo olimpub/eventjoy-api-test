@@ -73,12 +73,149 @@ namespace EventJoy.Api
             using (var tokenConn = new SqlConnection(_connectionString))
             {
                 await tokenConn.OpenAsync();
-                using (var tokenCmd = new SqlCommand("SELECT 1 FROM [PTA].[tblEventDisplayToken] WHERE Token = @Token AND EventID = @EventID AND ActiveFlg = 1 AND ExpiresAtUtc > SYSUTCDATETIME()", tokenConn))
+                using (var tokenCmd = new SqlCommand(@"
+                    UPDATE [PTA].[tblEventDisplayToken]
+                    SET [LastSeenUtc] = SYSUTCDATETIME(),
+                        [ConnectedAtUtc] = COALESCE([ConnectedAtUtc], SYSUTCDATETIME())
+                    WHERE [Token] = @Token
+                      AND [EventID] = @EventID
+                      AND [ActiveFlg] = 1
+                      AND [TokenActiveFlg] = 1
+                      AND [ExpiresAtUtc] > SYSUTCDATETIME();
+                    SELECT @@ROWCOUNT;", tokenConn))
                 {
                     tokenCmd.Parameters.AddWithValue("@Token", displayToken);
                     tokenCmd.Parameters.AddWithValue("@EventID", eventId);
-                    return await tokenCmd.ExecuteScalarAsync() != null;
+                    var rows = Convert.ToInt32(await tokenCmd.ExecuteScalarAsync() ?? 0);
+                    return rows > 0;
                 }
+            }
+        }
+
+        [Function("GetOlimpubConnections")]
+        public async Task<HttpResponseData> GetConnections([HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "op/connections/{eventId}")] HttpRequestData req, long eventId)
+        {
+            int? userId = JwtValidator.ValidateTokenAndGetUserId(req, _jwtSecret);
+            if (userId == null)
+            {
+                var unauthRes = req.CreateResponse(System.Net.HttpStatusCode.Unauthorized);
+                await unauthRes.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = "Érvénytelen vagy lejárt bejelentkezési token!" });
+                return unauthRes;
+            }
+
+            try
+            {
+                var activeConnIds = new List<string>();
+                using (var conn = new SqlConnection(_connectionString))
+                {
+                    await conn.OpenAsync();
+                    using (var checkCmd = new SqlCommand(@"
+                        SELECT [ConnectionId]
+                        FROM [OP].[tblClientConnection]
+                        WHERE [EventID] = @EventID AND [ActiveFlg] = 1;", conn))
+                    {
+                        checkCmd.Parameters.AddWithValue("@EventID", eventId);
+                        using (var rdr = await checkCmd.ExecuteReaderAsync())
+                        {
+                            while (await rdr.ReadAsync())
+                            {
+                                var cid = rdr["ConnectionId"]?.ToString();
+                                if (!string.IsNullOrWhiteSpace(cid)) activeConnIds.Add(cid);
+                            }
+                        }
+                    }
+                }
+
+                if (activeConnIds.Count > 0)
+                {
+                    var checks = await Task.WhenAll(activeConnIds.Select(async cid =>
+                    {
+                        bool alive = await SignalRManagementHelper.IsConnectionAliveAsync(cid);
+                        return (ConnectionId: cid, Alive: alive);
+                    }));
+
+                    var deadIds = checks.Where(x => !x.Alive).Select(x => x.ConnectionId).ToList();
+                    if (deadIds.Count > 0)
+                    {
+                        using (var pruneConn = new SqlConnection(_connectionString))
+                        {
+                            await pruneConn.OpenAsync();
+                            foreach (var deadId in deadIds)
+                            {
+                                using (var pruneCmd = new SqlCommand("UPDATE [OP].[tblClientConnection] SET [ActiveFlg] = 0 WHERE [EventID] = @EventID AND [ConnectionId] = @ConnId;", pruneConn))
+                                {
+                                    pruneCmd.Parameters.AddWithValue("@EventID", eventId);
+                                    pruneCmd.Parameters.AddWithValue("@ConnId", deadId);
+                                    await pruneCmd.ExecuteNonQueryAsync();
+                                }
+                            }
+                        }
+                    }
+                }
+
+                List<Dictionary<string, object?>> players;
+                List<Dictionary<string, object?>> displays;
+                Dictionary<string, object?> totals = new Dictionary<string, object?>
+                {
+                    ["PlayersOnline"] = 0,
+                    ["PlayersInTeams"] = 0,
+                    ["DisplaysOnline"] = 0
+                };
+
+                using (var conn = new SqlConnection(_connectionString))
+                {
+                    await conn.OpenAsync();
+                    using (var cmd = new SqlCommand("[OP].[spGetConnections]", conn))
+                    {
+                        cmd.CommandType = System.Data.CommandType.StoredProcedure;
+                        cmd.Parameters.AddWithValue("@EventID", eventId);
+                        cmd.Parameters.AddWithValue("@UserID", userId.Value);
+
+                        using (var reader = await cmd.ExecuteReaderAsync())
+                        {
+                            players = await ReadResultSetAsync(reader);
+                            if (await reader.NextResultAsync())
+                            {
+                                displays = await ReadResultSetAsync(reader);
+                            }
+                            else
+                            {
+                                displays = new List<Dictionary<string, object?>>();
+                            }
+
+                            if (await reader.NextResultAsync())
+                            {
+                                var totalsRows = await ReadResultSetAsync(reader);
+                                if (totalsRows.Count > 0)
+                                {
+                                    totals = totalsRows[0];
+                                }
+                            }
+                        }
+                    }
+                }
+
+                var response = req.CreateResponse(System.Net.HttpStatusCode.OK);
+                await response.WriteAsJsonAsync(new
+                {
+                    Players = players,
+                    Displays = displays,
+                    Totals = totals
+                });
+                return response;
+            }
+            catch (SqlException ex) when (ex.Number == 50030)
+            {
+                var forbiddenRes = req.CreateResponse(System.Net.HttpStatusCode.Forbidden);
+                await forbiddenRes.WriteAsJsonAsync(new { ReturnValue = -1, ReturnDescription = ex.Message });
+                return forbiddenRes;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "GetOlimpubConnections error");
+                var errRes = req.CreateResponse(System.Net.HttpStatusCode.InternalServerError);
+                await errRes.WriteAsJsonAsync(new { Error = "Belső szerverhiba." });
+                return errRes;
             }
         }
 

@@ -32,7 +32,7 @@ namespace EventJoy.Api
 
             // Kapcsolódás a Service Bus-hoz
             await using var client = new ServiceBusClient(_serviceBusConnectionString);
-            await using var sender = client.CreateSender("communication");
+            await using var sender = client.CreateSender(Environment.GetEnvironmentVariable("CommunicationTopic") ?? "communication");
             
             // Üzenet összerakása
             var payload = new { MailId = parsedMailId };

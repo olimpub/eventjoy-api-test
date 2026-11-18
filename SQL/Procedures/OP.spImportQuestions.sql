@@ -37,6 +37,10 @@ BEGIN
             ImageKey,
             AudioKey,
             RoundTypeCode,
+            CAST(CASE
+                WHEN LOWER(LTRIM(RTRIM(COALESCE(TipEnabledRaw, TippRaw, TipRaw, N'')))) IN (N'1', N'true', N'igen', N'yes', N'x') THEN 1
+                ELSE 0
+            END AS BIT) AS TipEnabled,
             Answer1, IsCorrect1, Match1,
             Answer2, IsCorrect2, Match2,
             Answer3, IsCorrect3, Match3,
@@ -65,6 +69,9 @@ BEGIN
             ImageKey NVARCHAR(500) '$.ImageKey',
             AudioKey NVARCHAR(500) '$.AudioKey',
             RoundTypeCode VARCHAR(50) '$.RoundTypeCode',
+            TipEnabledRaw NVARCHAR(32) '$.TipEnabled',
+            TippRaw NVARCHAR(32) '$.Tipp',
+            TipRaw NVARCHAR(32) '$.Tip',
             Answer1 NVARCHAR(500) '$.Answer1', IsCorrect1 BIT '$.IsCorrect1', Match1 NVARCHAR(500) '$.Match1',
             Answer2 NVARCHAR(500) '$.Answer2', IsCorrect2 BIT '$.IsCorrect2', Match2 NVARCHAR(500) '$.Match2',
             Answer3 NVARCHAR(500) '$.Answer3', IsCorrect3 BIT '$.IsCorrect3', Match3 NVARCHAR(500) '$.Match3',
@@ -197,9 +204,9 @@ BEGIN
         DECLARE @MaxSortIndex INT = ISNULL((SELECT MAX(SortIndex) FROM [OP].[tblRound] WHERE EventID = @EventID), 0);
         DECLARE @CreatedRounds TABLE (TopicID INT, RoundTypeID INT, RoundID INT);
 
-        INSERT INTO [OP].[tblRound] (EventID, TopicID, Mode, RoundStatusID, SortIndex, ActiveFlg, LastCreatedUserID, RoundTypeID)
+        INSERT INTO [OP].[tblRound] (EventID, TopicID, Mode, RoundStatusID, SortIndex, ActiveFlg, LastCreatedUserID, RoundTypeID, TipEnabled)
         OUTPUT inserted.TopicID, inserted.RoundTypeID, inserted.id INTO @CreatedRounds
-        SELECT @EventID, TopicID, 'fixed', @PendingStatusID, @MaxSortIndex + ROW_NUMBER() OVER (ORDER BY MIN(TempId)), 1, @UserID, RoundTypeID
+        SELECT @EventID, TopicID, 'fixed', @PendingStatusID, @MaxSortIndex + ROW_NUMBER() OVER (ORDER BY MIN(TempId)), 1, @UserID, RoundTypeID, CAST(MAX(CAST(ISNULL(TipEnabled, 0) AS INT)) AS BIT)
         FROM #IncomingQuestions
         WHERE TopicID IS NOT NULL
         GROUP BY TopicID, RoundTypeID;

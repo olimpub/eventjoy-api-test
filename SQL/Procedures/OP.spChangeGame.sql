@@ -53,6 +53,7 @@ BEGIN
         DECLARE @BlobBaseUrl NVARCHAR(200) = N'https://eventjoyteststorage.blob.core.windows.net/op-media/' + CAST(@EventID AS NVARCHAR(20)) + N'/';
 
         DECLARE @SignalRTargets TABLE (TargetGroup NVARCHAR(100), EventName NVARCHAR(50), CustomPayload NVARCHAR(MAX));
+        DECLARE @DisconnectConns TABLE (ConnectionId NVARCHAR(128));
         DECLARE @OutPing NVARCHAR(MAX) = NULL;
         DECLARE @CardEQID INT = NULL;
 
@@ -171,7 +172,8 @@ BEGIN
                         COALESCE(topR.Name, rt.Name, N'') AS Title,
                         COALESCE(topR.Name, rt.Name, N'') AS Name,
                         rs.Code AS StatusCode,
-                        r.SortIndex
+                        r.SortIndex,
+                        r.TipEnabled
                     FROM [OP].[tblRound] r
                     JOIN [OP].[tblRoundStatus] rs ON r.RoundStatusID = rs.id
                     JOIN [OP].[tblRoundType] rt ON r.RoundTypeID = rt.id
@@ -1530,6 +1532,18 @@ BEGIN
                     JSON_QUERY((SELECT @JT_TeamID AS TeamID, @JT_EventUserID AS EventUserID, @NextStateVersion AS StateVersion FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)) AS Payload
                 FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
             );
+
+            DECLARE @JT_ConnPing NVARCHAR(MAX) = (
+                SELECT
+                    N'Op.ConnectionsChanged' AS Action,
+                    @EventID AS EventID,
+                    @NextStateVersion AS StateVersion,
+                    JSON_QUERY((SELECT @EventID AS EventID, @NextStateVersion AS StateVersion FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)) AS Payload
+                FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+            );
+            INSERT INTO @SignalRTargets (TargetGroup, EventName, CustomPayload) VALUES
+                ('event_' + CAST(@EventID AS VARCHAR) + '_gamemaster', N'Op.ConnectionsChanged', @JT_ConnPing),
+                ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', N'Op.ConnectionsChanged', @JT_ConnPing);
         END
         ELSE IF @Action = N'Op.ResetRound'
         BEGIN
@@ -1599,6 +1613,126 @@ BEGIN
                     JSON_QUERY((SELECT @LT_EventUserID AS EventUserID, @NextStateVersion AS StateVersion FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)) AS Payload
                 FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
             );
+
+            DECLARE @LT_ConnPing NVARCHAR(MAX) = (
+                SELECT
+                    N'Op.ConnectionsChanged' AS Action,
+                    @EventID AS EventID,
+                    @NextStateVersion AS StateVersion,
+                    JSON_QUERY((SELECT @EventID AS EventID, @NextStateVersion AS StateVersion FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)) AS Payload
+                FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+            );
+            INSERT INTO @SignalRTargets (TargetGroup, EventName, CustomPayload) VALUES
+                ('event_' + CAST(@EventID AS VARCHAR) + '_gamemaster', N'Op.ConnectionsChanged', @LT_ConnPing),
+                ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', N'Op.ConnectionsChanged', @LT_ConnPing);
+        END
+        ELSE IF @Action = N'Op.ClearTeamMembers'
+        BEGIN
+            DECLARE @CTM_EventUserID BIGINT = COALESCE(
+                TRY_CAST(JSON_VALUE(@Json, '$.Payload.EventUserID') AS BIGINT),
+                TRY_CAST(JSON_VALUE(@Json, '$.Payload.eventUserId') AS BIGINT)
+            );
+
+            UPDATE tm
+            SET tm.ActiveFlg = 0
+            FROM [OP].[tblTeamMember] tm
+            JOIN [OP].[tblTeam] t ON tm.TeamID = t.id
+            WHERE t.EventID = @EventID
+              AND tm.ActiveFlg = 1
+              AND (@CTM_EventUserID IS NULL OR tm.EventUserID = @CTM_EventUserID);
+
+            DECLARE @CTM_InnerPayload NVARCHAR(MAX) = (
+                SELECT
+                    @EventID AS EventID,
+                    @CTM_EventUserID AS EventUserID,
+                    @NextStateVersion AS StateVersion
+                FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+            );
+
+            SET @OutPing = (
+                SELECT
+                    @Action AS Action,
+                    @EventID AS EventID,
+                    @CTM_EventUserID AS EventUserID,
+                    @NextStateVersion AS StateVersion,
+                    JSON_QUERY(@CTM_InnerPayload) AS Payload
+                FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+            );
+
+            DECLARE @CTM_ConnPing NVARCHAR(MAX) = (
+                SELECT
+                    N'Op.ConnectionsChanged' AS Action,
+                    @EventID AS EventID,
+                    @NextStateVersion AS StateVersion,
+                    JSON_QUERY((SELECT @EventID AS EventID, @NextStateVersion AS StateVersion FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)) AS Payload
+                FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+            );
+            INSERT INTO @SignalRTargets (TargetGroup, EventName, CustomPayload) VALUES
+                ('event_' + CAST(@EventID AS VARCHAR) + '_gamemaster', N'Op.ConnectionsChanged', @CTM_ConnPing),
+                ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', N'Op.ConnectionsChanged', @CTM_ConnPing);
+        END
+        ELSE IF @Action = N'Op.DisconnectDisplays'
+        BEGIN
+            DECLARE @DD_DisplayID INT = COALESCE(
+                TRY_CAST(JSON_VALUE(@Json, '$.Payload.DisplayID') AS INT),
+                TRY_CAST(JSON_VALUE(@Json, '$.Payload.displayId') AS INT)
+            );
+
+            UPDATE [PTA].[tblEventDisplayToken]
+            SET TokenActiveFlg = 0
+            WHERE EventID = @EventID
+              AND Module = 'op'
+              AND (@DD_DisplayID IS NULL OR id = @DD_DisplayID);
+
+            IF OBJECT_ID('[OP].[tblClientConnection]', 'U') IS NOT NULL
+            BEGIN
+                INSERT INTO @DisconnectConns (ConnectionId)
+                SELECT DISTINCT ConnectionId
+                FROM [OP].[tblClientConnection]
+                WHERE EventID = @EventID
+                  AND RoleGroup = 'display'
+                  AND ActiveFlg = 1
+                  AND (@DD_DisplayID IS NULL OR DisplayID = @DD_DisplayID);
+
+                UPDATE [OP].[tblClientConnection]
+                SET ActiveFlg = 0
+                WHERE EventID = @EventID
+                  AND RoleGroup = 'display'
+                  AND ActiveFlg = 1
+                  AND (@DD_DisplayID IS NULL OR DisplayID = @DD_DisplayID);
+            END
+
+            DECLARE @DD_InnerPayload NVARCHAR(MAX) = (
+                SELECT
+                    @EventID AS EventID,
+                    @DD_DisplayID AS DisplayID,
+                    @NextStateVersion AS StateVersion
+                FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+            );
+
+            DECLARE @DD_Ping NVARCHAR(MAX) = (
+                SELECT
+                    @Action AS Action,
+                    @EventID AS EventID,
+                    @DD_DisplayID AS DisplayID,
+                    @NextStateVersion AS StateVersion,
+                    JSON_QUERY(@DD_InnerPayload) AS Payload
+                FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+            );
+
+            DECLARE @DD_ConnPing NVARCHAR(MAX) = (
+                SELECT
+                    N'Op.ConnectionsChanged' AS Action,
+                    @EventID AS EventID,
+                    @NextStateVersion AS StateVersion,
+                    JSON_QUERY((SELECT @EventID AS EventID, @NextStateVersion AS StateVersion FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)) AS Payload
+                FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+            );
+
+            INSERT INTO @SignalRTargets (TargetGroup, EventName, CustomPayload) VALUES
+                ('event_' + CAST(@EventID AS VARCHAR) + '_display', @Action, @DD_Ping),
+                ('event_' + CAST(@EventID AS VARCHAR) + '_gamemaster', N'Op.ConnectionsChanged', @DD_ConnPing),
+                ('event_' + CAST(@EventID AS VARCHAR) + '_organizer', N'Op.ConnectionsChanged', @DD_ConnPing);
         END
         ELSE IF @Action = N'Op.React'
         BEGIN
@@ -1634,8 +1768,11 @@ BEGIN
                 TRY_CAST(JSON_VALUE(@Json, '$.Payload.ClockLeftMs') AS INT)
             );
 
+            DECLARE @MB_RoundTipEnabled BIT = NULL;
             DECLARE @MB_EQID INT = NULL;
-            SELECT TOP 1 @MB_EQID = eq.id
+            SELECT TOP 1
+                @MB_EQID = eq.id,
+                @MB_RoundTipEnabled = ISNULL(r.TipEnabled, 0)
             FROM [OP].[tblEventQuestion] eq
             JOIN [OP].[tblRound] r ON eq.RoundID = r.id
             JOIN [OP].[tblRoundType] rt ON r.RoundTypeID = rt.id
@@ -1645,6 +1782,20 @@ BEGIN
               AND r.ActiveFlg = 1
               AND rt.Code = 'manual_display'
             ORDER BY eq.StartedAtUtc DESC, eq.id DESC;
+
+            IF @MB_EQID IS NOT NULL AND @MB_RoundTipEnabled = 0
+            BEGIN
+                THROW 50038, N'Ebben a fordulóban a tippelés nem engedélyezett!', 1;
+            END
+            IF @MB_EQID IS NULL AND EXISTS (
+                SELECT 1
+                FROM [OP].[tblRound] r
+                JOIN [OP].[tblRoundStatus] rs ON r.RoundStatusID = rs.id
+                WHERE r.EventID = @EventID AND r.ActiveFlg = 1 AND rs.Code = 'active' AND ISNULL(r.TipEnabled, 0) = 0
+            )
+            BEGIN
+                THROW 50038, N'Ebben a fordulóban a tippelés nem engedélyezett!', 1;
+            END
 
             DECLARE @MB_Accepted BIT = 0;
 
@@ -1755,6 +1906,41 @@ BEGIN
                     @MJ_CorrectFlg AS CorrectFlg,
                     @NextStateVersion AS StateVersion,
                     JSON_QUERY((SELECT @MJ_TeamID AS TeamID, @MJ_CorrectFlg AS CorrectFlg, @NextStateVersion AS StateVersion FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)) AS Payload
+                FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+            );
+        END
+        ELSE IF @Action IN (N'Op.SetRoundTip', N'Op.UpdateRound')
+        BEGIN
+            DECLARE @UR_RoundID INT = COALESCE(
+                TRY_CAST(JSON_VALUE(@Json, '$.Payload.RoundID') AS INT),
+                TRY_CAST(JSON_VALUE(@Json, '$.Payload.RoundId') AS INT),
+                TRY_CAST(JSON_VALUE(@Json, '$.Payload.roundId') AS INT)
+            );
+            DECLARE @UR_RawTip NVARCHAR(32) = COALESCE(
+                JSON_VALUE(@Json, '$.Payload.TipEnabled'),
+                JSON_VALUE(@Json, '$.Payload.tipEnabled'),
+                JSON_VALUE(@Json, '$.Payload.Tipp'),
+                JSON_VALUE(@Json, '$.Payload.tipp'),
+                JSON_VALUE(@Json, '$.Payload.Tip'),
+                JSON_VALUE(@Json, '$.Payload.tip')
+            );
+            DECLARE @UR_TipEnabled BIT = CASE
+                WHEN LOWER(LTRIM(RTRIM(ISNULL(@UR_RawTip, N'')))) IN (N'1', N'true', N'igen', N'yes', N'x') THEN 1
+                ELSE 0
+            END;
+
+            UPDATE [OP].[tblRound]
+            SET TipEnabled = @UR_TipEnabled
+            WHERE id = @UR_RoundID AND EventID = @EventID;
+
+            SET @OutPing = (
+                SELECT
+                    @Action AS Action,
+                    @EventID AS EventID,
+                    @UR_RoundID AS RoundID,
+                    @UR_TipEnabled AS TipEnabled,
+                    @NextStateVersion AS StateVersion,
+                    JSON_QUERY((SELECT @UR_RoundID AS RoundID, @UR_TipEnabled AS TipEnabled, @NextStateVersion AS StateVersion FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)) AS Payload
                 FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
             );
         END
@@ -1940,6 +2126,7 @@ BEGIN
 
         SELECT 1 AS ReturnValue, N'Sikeres művelet' AS ReturnDescription;
         SELECT TargetGroup, EventName, CustomPayload AS PayloadJson FROM @SignalRTargets;
+        SELECT ConnectionId FROM @DisconnectConns;
     END TRY
     BEGIN CATCH
         IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;

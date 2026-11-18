@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Threading.Tasks;
 using Microsoft.Azure.Functions.Worker;
@@ -81,6 +81,9 @@ namespace EventJoy.Api
 
                             // Második ResultSet: SignalR Service Bus Outbox!
                             var messages = new System.Collections.Generic.List<Azure.Messaging.ServiceBus.ServiceBusMessage>();
+                            var disconnectConnIds = new System.Collections.Generic.List<string>();
+                            bool? allowConnChanged = null;
+
                             if (returnValue == 1 && await reader.NextResultAsync())
                             {
                                 while (await reader.ReadAsync())
@@ -91,6 +94,12 @@ namespace EventJoy.Api
 
                                     if (!string.IsNullOrEmpty(targetGroup) && !string.IsNullOrEmpty(eventName) && !string.IsNullOrEmpty(payloadJson))
                                     {
+                                        if (eventName == "Op.ConnectionsChanged")
+                                        {
+                                            allowConnChanged ??= SignalRManagementHelper.ShouldEmitConnectionsChanged(data.EventID);
+                                            if (!allowConnChanged.Value) continue;
+                                        }
+
                                         var sbPayload = new { TargetGroup = targetGroup, EventName = eventName, PayloadJson = System.Text.Json.JsonSerializer.Deserialize<object>(payloadJson) };
                                         var sbMessage = new Azure.Messaging.ServiceBus.ServiceBusMessage(System.Text.Json.JsonSerializer.Serialize(sbPayload))
                                         {
@@ -98,6 +107,19 @@ namespace EventJoy.Api
                                         };
                                         sbMessage.ApplicationProperties["channel"] = "signalr";
                                         messages.Add(sbMessage);
+                                    }
+                                }
+
+                                // Harmadik ResultSet (opcionális): lezárandó SignalR kapcsolatok (Op.DisconnectDisplays)
+                                if (await reader.NextResultAsync())
+                                {
+                                    while (await reader.ReadAsync())
+                                    {
+                                        var cid = reader["ConnectionId"]?.ToString();
+                                        if (!string.IsNullOrWhiteSpace(cid))
+                                        {
+                                            disconnectConnIds.Add(cid);
+                                        }
                                     }
                                 }
                             }
@@ -108,7 +130,7 @@ namespace EventJoy.Api
                             {
                                 if (_serviceBusClient != null)
                                 {
-                                    await using var sender = _serviceBusClient.CreateSender("communication");
+                                    await using var sender = _serviceBusClient.CreateSender(Environment.GetEnvironmentVariable("CommunicationTopic") ?? "communication");
                                     await sender.SendMessagesAsync(messages);
                                     _logger.LogInformation($"Successfully published {messages.Count} Olimpub SignalR messages to ServiceBus.");
                                 }
@@ -116,6 +138,13 @@ namespace EventJoy.Api
                                 {
                                     _logger.LogWarning("ServiceBusClient is not configured. Real-time updates will not be sent.");
                                 }
+                            }
+
+                            if (returnValue == 1 && disconnectConnIds.Count > 0)
+                            {
+                                await Task.Delay(200);
+                                await Task.WhenAll(System.Linq.Enumerable.Select(disconnectConnIds,
+                                    cid => SignalRManagementHelper.RemoveAndCloseDisplayConnectionAsync(data.EventID, cid)));
                             }
                         }
                     }

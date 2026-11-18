@@ -141,6 +141,27 @@ BEGIN
                 SortIndex = ISNULL(@NewSortIndex, SortIndex),
                 LastCreatedUserID = @UserID
             WHERE id = @EventQuestionID;
+
+            DECLARE @RawTipEnabled NVARCHAR(32) = COALESCE(
+                JSON_VALUE(@Json, '$.TipEnabled'),
+                JSON_VALUE(@Json, '$.tipEnabled'),
+                JSON_VALUE(@Json, '$.Tipp'),
+                JSON_VALUE(@Json, '$.tipp'),
+                JSON_VALUE(@Json, '$.Tip'),
+                JSON_VALUE(@Json, '$.tip')
+            );
+            IF @RawTipEnabled IS NOT NULL
+            BEGIN
+                DECLARE @ParsedTipEnabled BIT = CASE
+                    WHEN LOWER(LTRIM(RTRIM(@RawTipEnabled))) IN (N'1', N'true', N'igen', N'yes', N'x') THEN 1
+                    ELSE 0
+                END;
+                UPDATE r
+                SET r.TipEnabled = @ParsedTipEnabled
+                FROM [OP].[tblRound] r
+                JOIN [OP].[tblEventQuestion] eq ON eq.RoundID = r.id
+                WHERE eq.id = @EventQuestionID AND r.EventID = @EventID;
+            END
         END
         ELSE IF @EventExtraQuestionID IS NOT NULL
         BEGIN

@@ -82,9 +82,18 @@ namespace EventJoy.Api
                             }
                             catch (IndexOutOfRangeException) { }
 
+                            int? displayId = null;
+                            try
+                            {
+                                int dispOrd = reader.GetOrdinal("DisplayID");
+                                if (!reader.IsDBNull(dispOrd)) displayId = reader.GetInt32(dispOrd);
+                            }
+                            catch (IndexOutOfRangeException) { }
+
                             var result = new
                             {
                                 ReturnValue = retVal,
+                                DisplayID = displayId,
                                 EventID = reader.GetInt32(reader.GetOrdinal("EventID")),
                                 Module = module,
                                 Pin = reader.GetString(reader.GetOrdinal("Pin")),
@@ -154,9 +163,18 @@ namespace EventJoy.Api
                             }
                             catch (IndexOutOfRangeException) { }
 
+                            int? displayId = null;
+                            try
+                            {
+                                int dispOrd = reader.GetOrdinal("DisplayID");
+                                if (!reader.IsDBNull(dispOrd)) displayId = reader.GetInt32(dispOrd);
+                            }
+                            catch (IndexOutOfRangeException) { }
+
                             var result = new
                             {
                                 ReturnValue = retVal,
+                                DisplayID = displayId,
                                 EventID = reader.GetInt32(reader.GetOrdinal("EventID")),
                                 Module = module,
                                 Token = reader.GetString(reader.GetOrdinal("Token")),
@@ -227,7 +245,7 @@ namespace EventJoy.Api
                 using (var connToken = new SqlConnection(_sqlConnectionString))
                 {
                     await connToken.OpenAsync();
-                    var tokenCmd = new SqlCommand("SELECT 1 FROM [PTA].[tblEventDisplayToken] WHERE EventID = @EventID AND Token = @Token AND ActiveFlg = 1 AND ExpiresAtUtc > SYSUTCDATETIME()", connToken);
+                    var tokenCmd = new SqlCommand("SELECT 1 FROM [PTA].[tblEventDisplayToken] WHERE EventID = @EventID AND Token = @Token AND ActiveFlg = 1 AND TokenActiveFlg = 1 AND ExpiresAtUtc > SYSUTCDATETIME()", connToken);
                     tokenCmd.Parameters.AddWithValue("@EventID", eventId);
                     tokenCmd.Parameters.AddWithValue("@Token", displayToken);
                     var scalar = await tokenCmd.ExecuteScalarAsync();

@@ -515,7 +515,7 @@ namespace EventJoy.Api
                             {
                                 if (_serviceBusClient != null)
                                 {
-                                    await using var sender = _serviceBusClient.CreateSender("communication");
+                                    await using var sender = _serviceBusClient.CreateSender(Environment.GetEnvironmentVariable("CommunicationTopic") ?? "communication");
                                     var messages = new System.Collections.Generic.List<Azure.Messaging.ServiceBus.ServiceBusMessage>();
 
                                     while (await reader.ReadAsync())

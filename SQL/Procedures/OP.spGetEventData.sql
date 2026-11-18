@@ -90,7 +90,8 @@ BEGIN
         r.Mode,
         rs.Code AS StatusCode,
         r.SortIndex,
-        rt.Code AS RoundTypeCode
+        rt.Code AS RoundTypeCode,
+        r.TipEnabled
     FROM [OP].[tblRound] r
     JOIN [OP].[tblRoundStatus] rs ON r.RoundStatusID = rs.id
     JOIN [OP].[tblRoundType] rt ON r.RoundTypeID = rt.id

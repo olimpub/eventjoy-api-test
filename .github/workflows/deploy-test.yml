@@ -1,4 +1,4 @@
-﻿name: Deploy Backend to Test Environment
+﻿name: Deploy Backend to Test Environment (apitest.eventjoy.hu)
 
 on:
   push:
@@ -6,14 +6,14 @@ on:
       - test
 
 env:
-  AZURE_FUNCTIONAPP_NAME: 'eventjoy-test-api'
-  AZURE_RESOURCE_GROUP: 'eventjoy-test-api_group'
-  AZURE_FUNCTIONAPP_PACKAGE_PATH: '.'         
-  DOTNET_VERSION: '8.0.x'                     
+  AZURE_FUNCTIONAPP_NAME: 'eventjoy-apptest-api'
+  AZURE_RESOURCE_GROUP: 'eventjoy-apptest_group'
+  AZURE_FUNCTIONAPP_PACKAGE_PATH: '.'
+  DOTNET_VERSION: '10.0.x'
 
 jobs:
   build-and-deploy:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
 
     steps:
       - name: 'Checkout GitHub Action'
@@ -24,18 +24,15 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
-      - name: 'Resolve Project Dependencies Using Dotnet'
-        shell: pwsh
+      - name: 'Build and Publish'
         run: |
-          pushd './${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}'
-          dotnet build --configuration Release
+          cd "${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}"
           dotnet publish --configuration Release --output ./output
-          popd
 
-      - name: 'Zip the output'
-        shell: pwsh
+      - name: 'Zip the output (including .azurefunctions)'
         run: |
-          Compress-Archive -Path ./output/* -DestinationPath ./publish.zip
+          cd "${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}/output"
+          zip -r ../publish.zip .
 
       - name: 'Login to Azure'
         uses: azure/login@v2
@@ -43,8 +40,5 @@ jobs:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: 'Deploy to Azure Functions via CLI'
-        shell: pwsh
         run: |
-          az functionapp deployment source config-zip -g ${{ env.AZURE_RESOURCE_GROUP }} -n ${{ env.AZURE_FUNCTIONAPP_NAME }} --src ./publish.zip
-
-
+          az functionapp deployment source config-zip -g "${{ env.AZURE_RESOURCE_GROUP }}" -n "${{ env.AZURE_FUNCTIONAPP_NAME }}" --src "${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}/publish.zip"

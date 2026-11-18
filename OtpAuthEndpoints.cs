@@ -408,7 +408,7 @@ namespace EventJoy.Api
                     if (!string.IsNullOrEmpty(sbConnString))
                     {
                         await using var client = new Azure.Messaging.ServiceBus.ServiceBusClient(sbConnString);
-                        await using var sender = client.CreateSender("communication");
+                        await using var sender = client.CreateSender(Environment.GetEnvironmentVariable("CommunicationTopic") ?? "communication");
 
                         // Handle Email
                         if (result1.TryGetValue("MailID", out var mailIdObj) && mailIdObj != null && Guid.TryParse(mailIdObj.ToString(), out Guid mailId))
