@@ -61,5 +61,20 @@ VALUES
 ('Pta.PatchDesk', 1, 1, 0, 0, 0, 1, 1, 0),
 
 -- 10. Pta.Reset: Mindenki
-('Pta.Reset', 1, 1, 1, 0, 0, 1, 0, 0);
+('Pta.Reset', 1, 1, 1, 0, 0, 1, 0, 0),
+
+-- 11. Pta.CloseRound
+('Pta.CloseRound', 1, 1, 0, 0, 0, 1, 0, 0),
+
+-- 12. Pta.PublishRound
+('Pta.PublishRound', 1, 1, 0, 0, 0, 1, 0, 0),
+
+-- 13. Pta.SeatFinal: Csak szervező futtathatja; SignalR közvetlenül az event_{id}_gamer csoportra megy
+('Pta.SeatFinal', 0, 0, 0, 0, 0, 1, 0, 0),
+
+-- 14. Pta.SetSpecialPrizeWinner: Csak szervező futtathatja; SignalR közvetlenül az event_{id}_gamer csoportra megy
+('Pta.SetSpecialPrizeWinner', 0, 0, 0, 0, 0, 1, 0, 0),
+
+-- 15. Pta.SetScoreCount: Csak szervező futtathatja; SignalR közvetlenül az event_{id}_gamer csoportra megy
+('Pta.SetScoreCount', 0, 0, 0, 0, 0, 1, 0, 0);
 GO

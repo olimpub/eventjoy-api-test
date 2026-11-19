@@ -18,6 +18,7 @@ CREATE TABLE [PTA].[tblEventPlayer](
 	[createdAt] [datetimeoffset](0) NOT NULL,
 	[updatedAt] [datetimeoffset](0) NOT NULL,
 	[FinalTruckPoint] [decimal](18, 2) NULL,
+	[ScoreCountFlg] [bit] NOT NULL,
 PRIMARY KEY CLUSTERED 
 (
 	[EventPlayerID] ASC
@@ -30,3 +31,5 @@ GO
 ALTER TABLE [PTA].[tblEventPlayer] ADD  DEFAULT (sysdatetimeoffset()) FOR [createdAt]
 GO
 ALTER TABLE [PTA].[tblEventPlayer] ADD  DEFAULT (sysdatetimeoffset()) FOR [updatedAt]
+GO
+ALTER TABLE [PTA].[tblEventPlayer] ADD  CONSTRAINT [DF_tblEventPlayer_ScoreCountFlg] DEFAULT ((1)) FOR [ScoreCountFlg]

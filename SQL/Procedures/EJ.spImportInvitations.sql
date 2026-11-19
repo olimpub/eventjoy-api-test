@@ -63,6 +63,20 @@ BEGIN
             ValidationCode = CAST(ABS(CHECKSUM(NEWID())) % 900000 + 100000 AS NVARCHAR(10)),
             EventUserUID = NEWID();
 
+        -- Ugyanahhoz az e-mailhez ugyanaz a ValidationCode tartozzon a batch-en belül
+        ;WITH FirstCodePerEmail AS (
+            SELECT
+                Email,
+                ValidationCode,
+                ROW_NUMBER() OVER (PARTITION BY Email ORDER BY RowID) AS rn
+            FROM #Invitations
+            WHERE Email IS NOT NULL
+        )
+        UPDATE i
+        SET i.ValidationCode = f.ValidationCode
+        FROM #Invitations i
+        INNER JOIN FirstCodePerEmail f ON f.Email = i.Email AND f.rn = 1;
+
         -- 1/B. Csoportosítási Flagek ellenőrzése
         DECLARE @OrgGrpFlg BIT = 0, @TeamGrpFlg BIT = 0, @RegionGrpFlg BIT = 0, @CompanyGrpFlg BIT = 0;
         SELECT 
@@ -79,12 +93,12 @@ BEGIN
         IF @RegionGrpFlg = 0 UPDATE #Invitations SET RegionName = NULL;
         IF @CompanyGrpFlg = 0 UPDATE #Invitations SET CompanyName = NULL;
 
-        -- 2. User Matching (Email alapán)
+        -- 2. Meglévő User Matching (Email alapján — írás még nincs!)
         -- tblUser alapján
         UPDATE i
         SET TargetUserID = u.id
         FROM #Invitations i
-        JOIN [EJ].[tblUser] u ON LOWER(u.EmailAddress) = i.Email
+        JOIN [EJ].[tblUser] u ON LOWER(LTRIM(RTRIM(u.EmailAddress))) = i.Email
         WHERE i.Email IS NOT NULL AND i.Email <> '' AND i.TargetUserID IS NULL;
 
         -- tblUserLoginIdentifier alapján
@@ -93,29 +107,6 @@ BEGIN
         FROM #Invitations i
         JOIN [EJ].[tblUserLoginIdentifier] uid ON uid.IdentifierValueNormalized = i.Email AND uid.IdentifierTypeID = 1
         WHERE i.Email IS NOT NULL AND i.Email <> '' AND i.TargetUserID IS NULL;
-
-        -- Hiányzó Userek létrehozása
-        DECLARE @NewUsers TABLE (InsertedID BIGINT, RowID INT);
-        MERGE INTO [EJ].[tblUser] AS target
-        USING (SELECT RowID, FirstName, LastName, Email, Phone FROM #Invitations WHERE TargetUserID IS NULL) AS source
-        ON 1=0
-        WHEN NOT MATCHED THEN
-            INSERT (FirstName, LastName, EmailAddress, PhoneNumber, StatusID, createdAt, updatedAt)
-            VALUES (source.FirstName, source.LastName, source.Email, source.Phone, 1, @Now, @Now)
-        OUTPUT inserted.id, source.RowID INTO @NewUsers;
-
-        -- TargetUserID frissítése az újaknál
-        UPDATE i
-        SET TargetUserID = nu.InsertedID
-        FROM #Invitations i
-        JOIN @NewUsers nu ON i.RowID = nu.RowID;
-
-        -- LoginIdentifier bejegyzés az új usereknek
-        INSERT INTO [EJ].[tblUserLoginIdentifier] (UserID, IdentifierTypeID, IdentifierValueRaw, IdentifierValueNormalized, IsPrimary, IsVerified, ActiveFlg, LastUpdatedUserID, createdAt, updatedAt)
-        SELECT nu.InsertedID, 1, i.Email, i.Email, 1, 0, 1, @UserID, @Now, @Now
-        FROM @NewUsers nu
-        JOIN #Invitations i ON nu.RowID = i.RowID
-        WHERE i.Email IS NOT NULL AND i.Email <> '';
 
         -- 3. Szerepkör (Role) Validálás
         UPDATE i
@@ -128,35 +119,19 @@ BEGIN
         UPDATE #Invitations
         SET ResultMsg = CONCAT(ISNULL(ResultMsg + '; ', ''), N'Ismeretlen szerepkör')
         WHERE RoleID IS NULL;
+
         -- Csoportosító mezők validálása (csak ha a flag be van kapcsolva és RoleTypeID NOT IN (1, 2))
         IF @OrgGrpFlg = 1 UPDATE #Invitations SET ResultMsg = CONCAT(ISNULL(ResultMsg + '; ', ''), N'Hiányzó Szervezet') WHERE OrganizationName IS NULL AND ISNULL(RoleTypeID, 0) NOT IN (1, 2);
         IF @TeamGrpFlg = 1 UPDATE #Invitations SET ResultMsg = CONCAT(ISNULL(ResultMsg + '; ', ''), N'Hiányzó Csapat') WHERE TeamName IS NULL AND ISNULL(RoleTypeID, 0) NOT IN (1, 2);
         IF @RegionGrpFlg = 1 UPDATE #Invitations SET ResultMsg = CONCAT(ISNULL(ResultMsg + '; ', ''), N'Hiányzó Régió') WHERE RegionName IS NULL AND ISNULL(RoleTypeID, 0) NOT IN (1, 2);
         IF @CompanyGrpFlg = 1 UPDATE #Invitations SET ResultMsg = CONCAT(ISNULL(ResultMsg + '; ', ''), N'Hiányzó Cég') WHERE CompanyName IS NULL AND ISNULL(RoleTypeID, 0) NOT IN (1, 2);
 
-
-        -- EventRole ellenőrzés
+        -- Meglévő EventRole feloldása
         UPDATE i
         SET EventRoleID = er.id
         FROM #Invitations i
         JOIN [EJ].[tblEventRole] er ON er.RoleID = i.RoleID AND er.EventID = @EventID
         WHERE i.RoleID IS NOT NULL;
-
-        -- Hiányzó EventRole-ok létrehozása
-        DECLARE @NewEventRoles TABLE (InsertedID BIGINT, RoleID BIGINT);
-        MERGE INTO [EJ].[tblEventRole] AS target
-        USING (SELECT DISTINCT RoleID FROM #Invitations WHERE RoleID IS NOT NULL AND EventRoleID IS NULL) AS source
-        ON 1=0
-        WHEN NOT MATCHED THEN
-            INSERT (EventID, RoleID, ActiveFlg, LastUpdatedUserID, createdAt, updatedAt)
-            VALUES (@EventID, source.RoleID, 1, @UserID, @Now, @Now)
-        OUTPUT inserted.id, source.RoleID INTO @NewEventRoles;
-
-        UPDATE i
-        SET EventRoleID = ner.InsertedID
-        FROM #Invitations i
-        JOIN @NewEventRoles ner ON i.RoleID = ner.RoleID
-        WHERE i.EventRoleID IS NULL;
 
         -- 4. Jegy (Ticket) Ellenőrzése
         UPDATE #Invitations
@@ -183,19 +158,27 @@ BEGIN
         UPDATE #Invitations
         SET ResultMsg = CONCAT(ISNULL(ResultMsg + '; ', ''), N'Ismeretlen Jegy + szerepkör!')
         WHERE EventRoleTicketID IS NULL 
-          AND EventRoleID IS NOT NULL 
+          AND RoleID IS NOT NULL 
           AND EventTicketID IS NOT NULL
           AND RoleTypeID <> 1;
 
-
+        -- 5/B. Fájlon belüli (Email + szerepkör) duplikáció ellenőrzés
+        -- (A már bent lévő ugyanazon szerepkörös sor NEM hiba: frissíti a jegyet és a csoportosítást!)
+        ;WITH RoleDup AS (
+            SELECT
+                RowID,
+                ROW_NUMBER() OVER (PARTITION BY Email, COALESCE(EventRoleID, -RoleID) ORDER BY RowID) AS rn
+            FROM #Invitations
+            WHERE Email IS NOT NULL
+              AND RoleID IS NOT NULL
+        )
         UPDATE i
-        SET ResultMsg = CONCAT(ISNULL(i.ResultMsg + '; ', ''), N'Már résztvevő')
+        SET ResultMsg = CONCAT(ISNULL(i.ResultMsg + '; ', ''), N'Már ebben a szerepkörben szerepel a fájlban')
         FROM #Invitations i
-        INNER JOIN [EJ].[tblUser] u ON LOWER(LTRIM(RTRIM(i.Email))) = LOWER(LTRIM(RTRIM(u.EmailAddress)))
-        INNER JOIN [EJ].[tblEventUser] eu ON eu.UserID = u.id AND eu.EventID = @EventID;
+        INNER JOIN RoleDup d ON d.RowID = i.RowID
+        WHERE d.rn > 1;
 
-        -- 6. Hiba riportolás
-
+        -- 6. Hiba riportolás (minden DB írás előtt -> hibás sornál semmi nem mentődik!)
         DECLARE @ErrorCount INT;
         SELECT @ErrorCount = COUNT(*) FROM #Invitations WHERE ResultMsg IS NOT NULL;
 
@@ -211,18 +194,83 @@ BEGIN
             RETURN;
         END
 
-        -- 7. Sikeres Mentés
+        -- 7. Sikeres Mentés (tranzakcióban)
+        BEGIN TRANSACTION;
 
-        -- ValidationCode frissítése 3 napos lejárattal az ÉRINTETT usereknél
+        -- 7/A. Hiányzó Userek létrehozása (Email szerint deduplikálva, ha egy új ember több szerepkörben szerepel a fájlban)
+        DECLARE @NewUsers TABLE (InsertedID BIGINT, Email NVARCHAR(300), FirstRowID INT);
+        ;WITH DistinctMissingUsers AS (
+            SELECT
+                RowID, FirstName, LastName, Email, Phone,
+                ROW_NUMBER() OVER (PARTITION BY ISNULL(Email, CAST(RowID AS NVARCHAR(50))) ORDER BY RowID) AS rn
+            FROM #Invitations
+            WHERE TargetUserID IS NULL
+        )
+        MERGE INTO [EJ].[tblUser] AS target
+        USING (SELECT RowID, FirstName, LastName, Email, Phone FROM DistinctMissingUsers WHERE rn = 1) AS source
+        ON 1=0
+        WHEN NOT MATCHED THEN
+            INSERT (FirstName, LastName, EmailAddress, PhoneNumber, StatusID, createdAt, updatedAt)
+            VALUES (source.FirstName, source.LastName, source.Email, source.Phone, 1, @Now, @Now)
+        OUTPUT inserted.id, source.Email, source.RowID INTO @NewUsers (InsertedID, Email, FirstRowID);
+
+        UPDATE i
+        SET TargetUserID = nu.InsertedID
+        FROM #Invitations i
+        INNER JOIN @NewUsers nu
+            ON (i.Email IS NOT NULL AND i.Email = nu.Email)
+            OR (i.Email IS NULL AND i.RowID = nu.FirstRowID)
+        WHERE i.TargetUserID IS NULL;
+
+        INSERT INTO [EJ].[tblUserLoginIdentifier] (UserID, IdentifierTypeID, IdentifierValueRaw, IdentifierValueNormalized, IsPrimary, IsVerified, ActiveFlg, LastUpdatedUserID, createdAt, updatedAt)
+        SELECT nu.InsertedID, 1, nu.Email, nu.Email, 1, 0, 1, @UserID, @Now, @Now
+        FROM @NewUsers nu
+        WHERE nu.Email IS NOT NULL AND nu.Email <> '';
+
+        -- Hiányzó EventRole-ok létrehozása (pl. Szervező szerepkörnél)
+        DECLARE @NewEventRoles TABLE (InsertedID BIGINT, RoleID BIGINT);
+        MERGE INTO [EJ].[tblEventRole] AS target
+        USING (SELECT DISTINCT RoleID FROM #Invitations WHERE RoleID IS NOT NULL AND EventRoleID IS NULL) AS source
+        ON 1=0
+        WHEN NOT MATCHED THEN
+            INSERT (EventID, RoleID, ActiveFlg, LastUpdatedUserID, createdAt, updatedAt)
+            VALUES (@EventID, source.RoleID, 1, @UserID, @Now, @Now)
+        OUTPUT inserted.id, source.RoleID INTO @NewEventRoles;
+
+        UPDATE i
+        SET EventRoleID = ner.InsertedID
+        FROM #Invitations i
+        JOIN @NewEventRoles ner ON i.RoleID = ner.RoleID
+        WHERE i.EventRoleID IS NULL;
+
+        -- Megjegyezzük azokat a felhasználókat, akiknek már van aktív sora az eseményen:
+        -- náluk a ValidationCode és a ValidationCodeExpiry NEM cserélődik!
+        DECLARE @AlreadyActiveEventUsers TABLE (UserID BIGINT PRIMARY KEY);
+        INSERT INTO @AlreadyActiveEventUsers (UserID)
+        SELECT DISTINCT eu.UserID
+        FROM [EJ].[tblEventUser] eu
+        WHERE eu.EventID = @EventID AND eu.ActiveFlg = 1;
+
+        -- Ha a már bent lévő usernek van meglévő ValidationCode-ja, tartsuk meg azt a #Invitations-ben is (pl. ha új szerepkört kap)
+        UPDATE i
+        SET i.ValidationCode = u.ValidationCode
+        FROM #Invitations i
+        INNER JOIN @AlreadyActiveEventUsers aeu ON aeu.UserID = i.TargetUserID
+        INNER JOIN [EJ].[tblUser] u ON u.id = i.TargetUserID
+        WHERE u.ValidationCode IS NOT NULL AND u.ValidationCode <> '';
+
+        -- ValidationCode frissítése 3 napos lejárattal KIZÁRÓLAG az eseményen még nem aktív usereknél
         UPDATE u
         SET 
             ValidationCode = i.ValidationCode,
             ValidationCodeExpiry = DATEADD(day, 3, @Now),
             updatedAt = @Now
         FROM [EJ].[tblUser] u
-        JOIN #Invitations i ON u.id = i.TargetUserID;
+        INNER JOIN #Invitations i ON u.id = i.TargetUserID
+        LEFT JOIN @AlreadyActiveEventUsers aeu ON aeu.UserID = u.id
+        WHERE aeu.UserID IS NULL;
 
-        -- Meghívók rögzítése vagy frissítése
+        -- Meghívók rögzítése vagy frissítése (EventID + UserID + EventRoleID kulcsra)
         DECLARE @EventUserActions TABLE (ActionName NVARCHAR(10), RowID INT);
 
         MERGE INTO [EJ].[tblEventUser] AS target
@@ -282,7 +330,7 @@ BEGIN
                 );
         END
 
-        -- 8. Outbox Email küldés (CSAK az újonnan hozzáadott felhasználóknak)
+        -- 8. Outbox Email küldés (CSAK az újonnan beszúrt meghívó sorokra)
         DECLARE @BatchID UNIQUEIDENTIFIER = NEWID();
         DECLARE @TemplateID INT;
         SELECT @TemplateID = id FROM [EJ].[tblEmailTemplate] WHERE MailerSendID = 'jy7zpl9rkm5l5vx6';
@@ -302,38 +350,40 @@ BEGIN
         IF @SendEmails = 1
         BEGIN
             MERGE INTO [EJ].[tblEmailOutbox] AS target
-        USING (
-            SELECT i.* 
-            FROM #Invitations i
-            JOIN @EventUserActions eua ON i.RowID = eua.RowID
-            WHERE eua.ActionName = 'INSERT' AND i.Email IS NOT NULL AND i.Email <> ''
-        ) AS source
-        ON 1=0
-        WHEN NOT MATCHED THEN
-            INSERT (BatchID, TemplateID, RefID, UserID, EmailName, EmailAddress, createdAt, StatusID)
-            VALUES (@BatchID, @TemplateID, source.TargetUserID, source.TargetUserID, '', source.Email, @Now, 0)
-        OUTPUT inserted.id, source.RowID INTO @OutboxIDs;
+            USING (
+                SELECT i.* 
+                FROM #Invitations i
+                JOIN @EventUserActions eua ON i.RowID = eua.RowID
+                WHERE eua.ActionName = 'INSERT' AND i.Email IS NOT NULL AND i.Email <> ''
+            ) AS source
+            ON 1=0
+            WHEN NOT MATCHED THEN
+                INSERT (BatchID, TemplateID, RefID, UserID, EmailName, EmailAddress, createdAt, StatusID)
+                VALUES (@BatchID, @TemplateID, source.TargetUserID, source.TargetUserID, '', source.Email, @Now, 0)
+            OUTPUT inserted.id, source.RowID INTO @OutboxIDs;
 
-        -- FirstName
-        INSERT INTO [EJ].[tblEmailOutboxParams] (EmailID, ParamName, ParamValue, LastUpdatedUserID, createdAt, updatedAt)
-        SELECT o.EmailID, 'FirstName', ISNULL(i.FirstName, ''), @UserID, @Now, @Now
-        FROM @OutboxIDs o JOIN #Invitations i ON o.RowID = i.RowID;
+            -- FirstName
+            INSERT INTO [EJ].[tblEmailOutboxParams] (EmailID, ParamName, ParamValue, LastUpdatedUserID, createdAt, updatedAt)
+            SELECT o.EmailID, 'FirstName', ISNULL(i.FirstName, ''), @UserID, @Now, @Now
+            FROM @OutboxIDs o JOIN #Invitations i ON o.RowID = i.RowID;
 
-        -- EventName
-        INSERT INTO [EJ].[tblEmailOutboxParams] (EmailID, ParamName, ParamValue, LastUpdatedUserID, createdAt, updatedAt)
-        SELECT o.EmailID, 'EventName', ISNULL(@EventName, ''), @UserID, @Now, @Now
-        FROM @OutboxIDs o JOIN #Invitations i ON o.RowID = i.RowID;
+            -- EventName
+            INSERT INTO [EJ].[tblEmailOutboxParams] (EmailID, ParamName, ParamValue, LastUpdatedUserID, createdAt, updatedAt)
+            SELECT o.EmailID, 'EventName', ISNULL(@EventName, ''), @UserID, @Now, @Now
+            FROM @OutboxIDs o JOIN #Invitations i ON o.RowID = i.RowID;
 
-        -- EntryCode
-        INSERT INTO [EJ].[tblEmailOutboxParams] (EmailID, ParamName, ParamValue, LastUpdatedUserID, createdAt, updatedAt)
-        SELECT o.EmailID, 'EntryCode', i.ValidationCode, @UserID, @Now, @Now
-        FROM @OutboxIDs o JOIN #Invitations i ON o.RowID = i.RowID;
+            -- EntryCode
+            INSERT INTO [EJ].[tblEmailOutboxParams] (EmailID, ParamName, ParamValue, LastUpdatedUserID, createdAt, updatedAt)
+            SELECT o.EmailID, 'EntryCode', i.ValidationCode, @UserID, @Now, @Now
+            FROM @OutboxIDs o JOIN #Invitations i ON o.RowID = i.RowID;
 
-        -- EntryLink
-        INSERT INTO [EJ].[tblEmailOutboxParams] (EmailID, ParamName, ParamValue, LastUpdatedUserID, createdAt, updatedAt)
-        SELECT o.EmailID, 'EntryLink', @BaseUrl + '/invite/' + CAST(i.EventUserUID AS NVARCHAR(36)), @UserID, @Now, @Now
-        FROM @OutboxIDs o JOIN #Invitations i ON o.RowID = i.RowID;
+            -- EntryLink
+            INSERT INTO [EJ].[tblEmailOutboxParams] (EmailID, ParamName, ParamValue, LastUpdatedUserID, createdAt, updatedAt)
+            SELECT o.EmailID, 'EntryLink', @BaseUrl + '/invite/' + CAST(i.EventUserUID AS NVARCHAR(36)), @UserID, @Now, @Now
+            FROM @OutboxIDs o JOIN #Invitations i ON o.RowID = i.RowID;
         END
+
+        COMMIT TRANSACTION;
 
         -- Sikeres válasz
         SELECT 1 AS ReturnValue, N'OK' AS ReturnDescription, @EventID AS EventID, @BatchID AS BatchID;
@@ -341,9 +391,8 @@ BEGIN
 
     END TRY
     BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
         SELECT -1 AS ReturnValue, ERROR_MESSAGE() AS ReturnDescription, NULL AS EventID, NULL AS BatchID;
     END CATCH
 END
 GO
-
-

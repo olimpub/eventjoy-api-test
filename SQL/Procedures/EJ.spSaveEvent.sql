@@ -358,6 +358,42 @@ BEGIN
             SELECT @EventID, PrizeID, @UserID, @Now, @Now
             FROM OPENJSON(@Json, '$.PtaPrizes')
             WITH (PrizeID INT);
+
+            IF JSON_QUERY(@Json, '$.PtaSpecialPrizes') IS NOT NULL
+            BEGIN
+                ;WITH IncomingSpecialPrizes AS (
+                    SELECT
+                        LOWER(LTRIM(RTRIM(PrizeKind))) AS PrizeKind,
+                        LEFT(LTRIM(RTRIM(PrizeName)), 150) AS PrizeName
+                    FROM (
+                        SELECT
+                            PrizeKind,
+                            PrizeName,
+                            ROW_NUMBER() OVER (PARTITION BY LOWER(LTRIM(RTRIM(PrizeKind))) ORDER BY (SELECT NULL)) AS rn
+                        FROM OPENJSON(@Json, '$.PtaSpecialPrizes')
+                        WITH (
+                            PrizeKind NVARCHAR(32) '$.PrizeKind',
+                            PrizeName NVARCHAR(300) '$.PrizeName'
+                        )
+                        WHERE LOWER(LTRIM(RTRIM(ISNULL(PrizeKind, N'')))) IN (N'surprise', N'weighted')
+                          AND LTRIM(RTRIM(ISNULL(PrizeName, N''))) <> N''
+                    ) dedup
+                    WHERE rn = 1
+                )
+                MERGE INTO [PTA].[tblEventSpecialPrize] AS target
+                USING IncomingSpecialPrizes AS source
+                ON target.EventID = @EventID AND target.PrizeKind = source.PrizeKind
+                WHEN MATCHED THEN
+                    UPDATE SET
+                        target.PrizeName = source.PrizeName,
+                        target.LastUpdatedUserID = @UserID,
+                        target.updatedAt = @Now
+                WHEN NOT MATCHED BY TARGET THEN
+                    INSERT (EventID, PrizeKind, PrizeName, WinnerEventPlayerID, LastUpdatedUserID, createdAt, updatedAt)
+                    VALUES (@EventID, source.PrizeKind, source.PrizeName, NULL, @UserID, @Now, @Now)
+                WHEN NOT MATCHED BY SOURCE AND target.EventID = @EventID THEN
+                    DELETE;
+            END
         END
 
         -- ==========================================

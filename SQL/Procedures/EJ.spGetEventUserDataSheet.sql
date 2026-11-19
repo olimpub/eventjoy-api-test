@@ -54,18 +54,19 @@ BEGIN
             (8,  N'EventRoundDesks'),
             (9,  N'EventPlayers'),
             (10, N'GameSchedules'),
-            (11, N'EventPrizes');
+            (11, N'EventPrizes'),
+            (12, N'EventSpecialPrizes');
 
         IF (@DataSheetType = 1)
         BEGIN
             INSERT INTO @Results (ResultNo, ResultName)
-            VALUES (12, N'EventParticpants'),
-                   (13, N'EventPrograms');
+            VALUES (13, N'EventParticpants'),
+                   (14, N'EventPrograms');
         END
         ELSE
         BEGIN
             INSERT INTO @Results (ResultNo, ResultName)
-            VALUES (12, N'EventPrograms');
+            VALUES (13, N'EventPrograms');
         END
 
 
@@ -101,7 +102,8 @@ BEGIN
         WHERE EventID = @EventID;
 
         -- RS8: PTA.tblEventRoundDesk
-        SELECT erd.*
+        SELECT erd.*,
+               CASE WHEN erd.CompletedAtUtc IS NOT NULL THEN N'Lezárt' ELSE NULL END AS SName
         FROM [PTA].[tblEventRoundDesk] erd
         INNER JOIN [PTA].[tblEventRound] er ON er.EventRoundID = erd.EventRoundID
         WHERE er.EventID = @EventID
@@ -124,6 +126,11 @@ BEGIN
         -- RS11: PTA.tblEventPrize
         SELECT *
         FROM [PTA].[tblEventPrize]
+        WHERE EventID = @EventID;
+
+        -- RS12: PTA.tblEventSpecialPrize
+        SELECT EventID, PrizeKind, PrizeName, WinnerEventPlayerID
+        FROM [PTA].[tblEventSpecialPrize]
         WHERE EventID = @EventID;
 
         -- RS12: Organizer datasheet (EJ résztvevők)
