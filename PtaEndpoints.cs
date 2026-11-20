@@ -306,7 +306,7 @@ namespace EventJoy.Api
                             }
                         }
 
-                        int nameIndex = 2; // Because RS 1 and 2 are already consumed
+                        int nameIndex = 2; // Because RS 1 and RS 2 are already consumed
 
                         while (await reader.NextResultAsync())
                         {
@@ -333,20 +333,79 @@ namespace EventJoy.Api
 
                             if (currentName == "PtaDisplayState" && list.Count > 0)
                             {
-                                dynamicResults[currentName] = list[0]; // Object, not array
+                                dynamicResults[currentName] = list[0];
                             }
                             else
                             {
-                                dynamicResults[currentName] = list; // Array
+                                dynamicResults[currentName] = list;
                             }
-                            
+
                             nameIndex++;
                         }
 
+                        await reader.CloseAsync();
+                        await FillClosedRoundScoresAsync(conn, eventId, dynamicResults);
                         await response.WriteAsJsonAsync(dynamicResults);
                         return response;
                     }
                 }
+            }
+        }
+
+        /// <summary>
+        /// A kivetítő eljárás a pontokat csak publikált fordulón adja vissza.
+        /// A lezárt forduló (státusz 4, vagy a neve Lezárt) is elég a különdíjhoz, ezért itt pótoljuk.
+        /// </summary>
+        private static async Task FillClosedRoundScoresAsync(
+            SqlConnection conn,
+            int eventId,
+            Dictionary<string, object?> results)
+        {
+            if (!results.TryGetValue("GameSchedules", out var raw) || raw is not List<Dictionary<string, object?>> rows)
+                return;
+
+            var byId = new Dictionary<long, Dictionary<string, object?>>();
+            foreach (var row in rows)
+            {
+                if (!row.TryGetValue("GameScheduleID", out var idObj) || idObj == null) continue;
+                if (!long.TryParse(Convert.ToString(idObj), out var id)) continue;
+                byId[id] = row;
+            }
+            if (byId.Count == 0) return;
+
+            try
+            {
+                const string sql = @"
+SELECT gs.GameScheduleID, gs.Amount, gs.OnTrack, gs.Position, gs.ResultPoint, gs.FinalPoint
+FROM [PTA].[tblGameSchedule] gs
+INNER JOIN [PTA].[tblEventRoundDesk] erd ON erd.EventRoundDeskID = gs.EventRoundDeskID
+INNER JOIN [PTA].[tblEventRound] er ON er.EventRoundID = erd.EventRoundID
+LEFT JOIN [PTA].[tblEventRoundStatus] s ON s.EventRoundStatusID = er.EventRoundStatusID
+WHERE er.EventID = @EventID
+  AND gs.ActiveFlg = 1
+  AND (
+        er.EventRoundStatusID IN (4, 5)
+        OR s.SName LIKE N'%Lezár%'
+        OR s.SName LIKE N'%Publik%'
+        OR s.SName LIKE N'%Közzét%'
+      )";
+                using var cmd = new SqlCommand(sql, conn);
+                cmd.Parameters.AddWithValue("@EventID", eventId);
+                using var scoreReader = await cmd.ExecuteReaderAsync();
+                while (await scoreReader.ReadAsync())
+                {
+                    var id = Convert.ToInt64(scoreReader.GetValue(0));
+                    if (!byId.TryGetValue(id, out var row)) continue;
+                    row["Amount"] = scoreReader.IsDBNull(1) ? null : scoreReader.GetValue(1);
+                    row["OnTrack"] = scoreReader.IsDBNull(2) ? null : scoreReader.GetValue(2);
+                    row["Position"] = scoreReader.IsDBNull(3) ? null : scoreReader.GetValue(3);
+                    row["ResultPoint"] = scoreReader.IsDBNull(4) ? null : scoreReader.GetValue(4);
+                    row["FinalPoint"] = scoreReader.IsDBNull(5) ? null : scoreReader.GetValue(5);
+                }
+            }
+            catch (SqlException)
+            {
+                /* a fal a már beolvasott, publikált pontokkal megy tovább */
             }
         }
 
